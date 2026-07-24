@@ -1,0 +1,53 @@
+/* YouTube Mixer — shared slider styles (in-player and popup). */
+
+.mixer-slider {
+  position: relative;
+  flex: 1 1 auto;
+  height: 24px;
+  min-width: 100px;
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* Track */
+.mixer-slider::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+}
+
+.mixer-slider-fill {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  height: 6px;
+  transform: translateY(-50%);
+  width: 0%;
+  background: #f03;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+.mixer-slider-handle {
+  position: absolute;
+  top: 50%;
+  left: 0%;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+
+.mixer-slider.dragging .mixer-slider-handle {
+  transform: translate(-50%, -50%) scale(1.2);
+}

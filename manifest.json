@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "YouTube Mixer",
+  "version": "1.0.1",
+  "description": "Live audio mixer for open YouTube tabs: wide eased volume faders, mute, and 5-second fade-out, in the player and from one popup.",
+  "host_permissions": ["https://www.youtube.com/*"],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "YouTube Mixer",
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "css": ["content/stabilize.css"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["shared/slider.js", "content/content.js"],
+      "css": ["shared/slider.css", "content/content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://www.youtube.com/*"],
+      "js": ["content/bridge.js"],
+      "run_at": "document_idle",
+      "world": "MAIN"
+    }
+  ]
+}

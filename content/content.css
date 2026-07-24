@@ -1,0 +1,127 @@
+/* YouTube Mixer — in-player control styles.
+   The player's normal auto-hide is left alone: the whole control bar hides
+   on idle as usual, but while visible the mixer slider is always expanded
+   (never hover-to-expand like the native one). */
+
+/* Give the auto-hide a longer grace period. The idle timeout itself lives in
+   YouTube's JS, but the hide is just an opacity transition triggered by the
+   .ytp-autohide class — delaying that transition keeps the bar on screen
+   ~1.6s longer. Re-show is untouched (class removed = selector no longer
+   matches = no delay). */
+#movie_player.ytp-autohide .ytp-chrome-bottom,
+#movie_player.ytp-autohide .ytp-gradient-bottom {
+  transition-delay: 1.6s !important;
+}
+
+/* Remove the native volume UI (speaker icon + hover-to-expand slider); the
+   mixer cluster takes its place in the left control group. */
+#movie_player .ytp-volume-area,
+#movie_player .ytp-mute-button,
+#movie_player .ytp-volume-panel {
+  display: none !important;
+}
+
+/* Let the mixer cluster take the free width of the control bar, and centre
+   every child on the bar's vertical axis. */
+#movie_player .ytp-left-controls {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+/* The time-display centres itself via line-height/vertical-align in YouTube's
+   inline layout; once the row is a flex container that drifts, so give it an
+   explicitly centred full-height box. */
+#movie_player .ytp-left-controls > .ytp-time-display {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* Make the chapter-container match the time-display's box exactly: same
+   display, same full-height centred alignment, and native vertical
+   margin/padding/line-height neutralised so it can't sit taller or off-axis.
+   The chapter-title button inside is left untouched. */
+#movie_player .ytp-left-controls > .ytp-chapter-container {
+  display: inline-flex;
+  align-items: center;
+  height: 100%;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  line-height: normal;
+}
+
+/* Re-centre the play/pause button, which sits slightly high in the flex row. */
+#movie_player .ytp-left-controls > .ytp-play-button.ytp-button {
+  margin-top: 0;
+}
+
+/* --- the mixer cluster --- */
+
+.ytm-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 180px;
+  max-width: 440px;
+  align-self: stretch; /* fill the bar height so centring is exact */
+  margin: 0 14px 0 6px;
+}
+
+/* Readout, buttons and slider share one 26px control height, each centring
+   its own content, so nothing rides higher than its neighbours. */
+.ytm-readout {
+  font-family: "YouTube Noto", Roboto, Arial, sans-serif;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  min-width: 32px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.ytm-muted .ytm-readout {
+  color: rgba(255, 255, 255, 0.4);
+  text-decoration: line-through;
+}
+
+.ytm-btn {
+  font-family: Roboto, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  line-height: 1;
+  color: #fff;
+  /* Translucent dark pill (like the native time readout's backing) so the
+     white label reads on any video underneath. */
+  background: rgba(0, 0, 0, 0.55);
+  border: none;
+  border-radius: 4px;
+  height: 26px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+.ytm-btn:hover {
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.ytm-muted .ytm-mute {
+  background: #f03;
+}
+
+.ytm-slider {
+  align-self: center;
+}

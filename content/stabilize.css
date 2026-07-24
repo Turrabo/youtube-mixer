@@ -1,0 +1,16 @@
+/* YouTube Mixer — layout-shift stabilisation.
+   Injected at document_start so the rules apply before first paint.
+   Diagnosis and rationale: README.md § "Layout-shift diagnosis". */
+
+/* The player box is resized once video metadata arrives: non-16:9 videos
+   get a taller or shorter player, so the control bar lands at a different
+   viewport height in every tab and jumps at metadata load. Lock the
+   default-view player container to 16:9 from first paint; the video
+   letterboxes inside it. (Theatre/fullscreen keep YouTube's own fixed
+   full-bleed height, which is already uniform across tabs.) */
+ytd-watch-flexy:not([theater]):not([fullscreen]) #player-container-inner,
+ytd-watch-flexy:not([theater]):not([fullscreen]) #player-container {
+  aspect-ratio: 16 / 9 !important;
+  height: auto !important;
+  padding-top: 0 !important;
+}
