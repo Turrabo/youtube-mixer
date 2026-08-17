@@ -79,8 +79,14 @@ Certifications (tick all three):
 - I do not use or transfer user data for purposes unrelated to my item's single purpose.
 - I do not use or transfer user data to determine creditworthiness or for lending purposes.
 
-Privacy policy URL: host the file in this folder (store/privacy-policy.md) at a
-public URL and paste it here. A GitHub Gist or GitHub Pages link is fine.
+Privacy policy URL (published, paste as-is):
+
+    https://gist.github.com/Turrabo/25053c9993e4338ec74ec4f416767d26
+
+That gist is rendered from `store/privacy-policy.md` in this folder, which
+remains the source of truth. If the policy changes, edit that file and push the
+change to the same gist with `gh gist edit`, so the URL in the listing keeps
+working.
 
 ---
 
