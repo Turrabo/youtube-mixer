@@ -12,7 +12,7 @@ remote code).
 1. Open `chrome://extensions`.
 2. Turn on **Developer mode** (top right).
 3. Click **Load unpacked** and pick this folder (the one with `manifest.json`).
-4. Reload any YouTube tabs that were already open — content scripts only
+4. Reload any YouTube tabs that were already open - content scripts only
    inject into pages loaded after install.
 
 ## What it does
@@ -30,7 +30,7 @@ In every `youtube.com/watch` player:
   mid-playback is not mistaken for a new video.
 - **Volume and mute go through YouTube's own player API** (`setVolume`,
   `mute`/`unMute`), never by writing `video.volume`. This is load-bearing, and
-  the reasons are measured rather than assumed — see "Volume architecture"
+  the reasons are measured rather than assumed - see "Volume architecture"
   below. Play/pause and loop use the element directly, which YouTube does not
   fight. Because content scripts run in an isolated world and cannot reach the
   player object, all of this crosses into the page through a MAIN-world bridge
@@ -40,14 +40,14 @@ In every `youtube.com/watch` player:
 Slider feel (same in player and popup):
 
 - **Click** anywhere on the track: volume jumps there immediately.
-- **Drag** the handle: heavily damped follow — the displayed value eases
+- **Drag** the handle: heavily damped follow - the displayed value eases
   toward the pointer each animation frame (`displayed += (target − displayed)
   × k`, time-constant ≈ 0.45 s), and the real volume follows the eased value.
   It trails the hand, smooths jitter, and settles within ~1.5 s of the hand
   stopping. The easing never travels past the point where you released.
 
-The popup (toolbar icon) lists every live YouTube watch tab — discarded
-("sleeping") tabs are filtered out — with thumbnail, title, play/pause, the
+The popup (toolbar icon) lists every live YouTube watch tab - discarded
+("sleeping") tabs are filtered out - with thumbnail, title, play/pause, the
 same eased slider, readout, MUTE and FADE. Clicking a title/thumbnail focuses
 that tab. State polls every 400 ms while the popup is open.
 
@@ -71,13 +71,13 @@ first paint):
 
 With the player box a constant size and scroll pinned to the top, the control
 bar sits at the same viewport position in every tab from load. (Note: the
-extension deliberately does not hide or block any YouTube ads or promos —
+extension deliberately does not hide or block any YouTube ads or promos -
 doing so would breach Chrome Web Store policy.)
 
 ## Checking it still works
 
 ```
-pwsh -NoProfile -Command "& scripts/test-rig.ps1 -Headed"
+.\scripts\test-rig.ps1 -Headed
 node tests/regression.mjs
 ```
 
@@ -95,9 +95,43 @@ so a suite that used one would pass while broken.
 Sign in once first, so tests are not disrupted by preroll ads:
 `scripts/test-rig.ps1 -SignIn`.
 
+## Releasing to the store
+
+**Bump `version` in `manifest.json` before packaging.** The Chrome Web Store
+refuses any upload whose version is not strictly greater than the published
+one. This has already cost a release: the store served 1.0.2 from 31 July 2026,
+and the volume-ratchet and fade fixes were built on 17 August under that *same*
+version number, so the fixed build could not be uploaded at all - the store had
+1.0.2 already. The fixes sat unshippable until the bump to 1.0.3. Check the
+live version before assuming an upload will be accepted.
+
+Then:
+
+```
+.\scripts\package.ps1
+```
+
+It reads the version from `manifest.json`, so the filename can never disagree
+with the contents, and writes `youtube-mixer-v<version>.zip` in the repo root.
+It refuses to overwrite an existing zip of the same version unless you pass
+`-Force`, because silently replacing one is how an uploaded artifact stops
+matching the one that was tested.
+
+What ships is an **allowlist** - `manifest.json` plus `content/`, `icons/`,
+`popup/`, `shared/` - not an exclusion list, so a new file added to the repo
+later stays out of the package by default rather than shipping because nobody
+remembered to exclude it. `README.md`, `store/`, `tests/` and `scripts/` are
+therefore never in the zip.
+
+The item id, publisher id and dashboard URL are recorded in this machine's
+store-publisher config (`~/.claude/state/store-publisher/config.json`), which is
+their canonical home; they are deliberately not restated here. Visibility is
+Private (named trusted testers), set on the dashboard and inherited by every
+update - an update cannot widen the audience.
+
 ## Volume architecture (why it does not touch `video.volume`)
 
-The obvious implementation — set `video.volume` on the HTML5 element — is
+The obvious implementation - set `video.volume` on the HTML5 element - is
 wrong, in two ways that only show up minutes into real use. Both were measured
 in a scripted browser, not guessed:
 
@@ -114,7 +148,7 @@ So `video.volume` is not the user's volume, and the player considers itself the
 owner of that property. Hence:
 
 1. **Writes get wiped.** Setting `video.volume` directly holds only until the
-   player next rebuilds its state — a quality or stream-format switch during
+   player next rebuilds its state - a quality or stream-format switch during
    playback. It then re-applies its own value, undoing your setting at a moment
    that feels random. Confirmed: a directly-written `0.64` survived 8 s of
    playback, then snapped to `0.3` the instant a quality change landed.
@@ -158,7 +192,7 @@ are the assumptions to re-check (all in `content/content.js`,
 - **Autoplay-vs-human heuristic:** a `play` event is treated as human if a
   pointer gesture hit the player (or Space/K was pressed) within the last
   second, or the popup requested it; anything else is autoplay and gets
-  paused. Playing via some other page element could be misread as autoplay —
+  paused. Playing via some other page element could be misread as autoplay -
   just click play again.
 - **Chrome autoplay policy:** pressing play *from the popup* on a tab you have
   never clicked inside can be rejected by Chrome for unmuted media. YouTube's
@@ -173,7 +207,7 @@ are the assumptions to re-check (all in `content/content.js`,
   accumulating, so the ramp still ends at exactly 5 s even if the browser
   throttles the tick rate in the background; worst case it steps slightly
   instead of stopping dead. The slider easing still uses rAF, which is correct
-  — you can only drag a slider you can see.
+  - you can only drag a slider you can see.
 - Loop uses `video.loop`, so tracks repeat seamlessly but playlist auto-advance
   never happens (intended for ambience use).
 
@@ -198,6 +232,8 @@ tests/
                         browser with real mouse input
   cdp.mjs               dependency-free DevTools Protocol client
 scripts/
+  package.ps1           builds the store zip from an allowlist; version comes
+                        from manifest.json
   make-icons.ps1        icon generator (System.Drawing, run once)
   test-rig.ps1          dev-only: launches Edge headless + muted with the
                         extension loaded and a CDP port, on a persistent
