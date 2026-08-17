@@ -1,4 +1,4 @@
-/* YouTube Mixer — layout-shift stabilisation.
+/* YouTube Mixer - layout-shift stabilisation.
    Injected at document_start so the rules apply before first paint.
    Diagnosis and rationale: README.md § "Layout-shift diagnosis". */
 

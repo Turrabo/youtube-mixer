@@ -1,11 +1,11 @@
-/* YouTube Mixer — in-player control styles.
+/* YouTube Mixer - in-player control styles.
    The player's normal auto-hide is left alone: the whole control bar hides
    on idle as usual, but while visible the mixer slider is always expanded
    (never hover-to-expand like the native one). */
 
 /* Give the auto-hide a longer grace period. The idle timeout itself lives in
    YouTube's JS, but the hide is just an opacity transition triggered by the
-   .ytp-autohide class — delaying that transition keeps the bar on screen
+   .ytp-autohide class - delaying that transition keeps the bar on screen
    ~1.6s longer. Re-show is untouched (class removed = selector no longer
    matches = no delay). */
 #movie_player.ytp-autohide .ytp-chrome-bottom,

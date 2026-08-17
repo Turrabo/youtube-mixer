@@ -1,4 +1,4 @@
-// YouTube Mixer — popup panel.
+// YouTube Mixer - popup panel.
 //
 // Lists every live (non-discarded) YouTube watch tab whose content script
 // answers, with the same eased slider + readout + mute + fade controls as the
@@ -53,7 +53,7 @@ function applyState(row, state) {
   row.muteBtn.classList.toggle('active', state.muted);
   row.el.classList.toggle('muted', state.muted);
   // Don't fight the user's hand on the slider, and ignore polls answered
-  // just after we sent a volume — they can carry a stale value that would
+  // just after we sent a volume - they can carry a stale value that would
   // nudge the freshly-settled handle (reads as phantom momentum).
   if (!row.slider.isBusy() && Date.now() - (row.lastVolSent || 0) > 800) {
     row.slider.setValue(state.volume);
@@ -134,7 +134,7 @@ async function poll() {
   for (const [tabId, row] of rows) {
     const state = await send(tabId, { type: 'getState' });
     if (!state || !state.ok) {
-      // Tab closed, navigated away, or went to sleep — drop the row.
+      // Tab closed, navigated away, or went to sleep - drop the row.
       row.el.remove();
       rows.delete(tabId);
       updateChrome();
@@ -146,7 +146,7 @@ async function poll() {
 
 async function init() {
   const tabs = await chrome.tabs.query({ url: 'https://www.youtube.com/watch*' });
-  // Exclude discarded ("sleeping") tabs — they have no live page to control.
+  // Exclude discarded ("sleeping") tabs - they have no live page to control.
   const live = tabs.filter((t) => !t.discarded);
   let skipped = tabs.length - live.length;
 
@@ -167,7 +167,7 @@ async function init() {
     footer.hidden = false;
     footer.textContent =
       skipped + ' sleeping or unresponsive YouTube tab' +
-      (skipped === 1 ? '' : 's') + ' hidden — reload to control here.';
+      (skipped === 1 ? '' : 's') + ' hidden - reload to control here.';
   }
   setInterval(poll, POLL_MS);
 }

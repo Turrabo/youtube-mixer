@@ -1,4 +1,4 @@
-# Chrome Web Store listing — copy to paste
+# Chrome Web Store listing - copy to paste
 
 Everything below is text for the Developer Dashboard fields. Nothing here is
 code; it's what you type into the listing and privacy tabs.

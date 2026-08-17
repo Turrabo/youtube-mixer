@@ -1,4 +1,4 @@
-// YouTube Mixer — shared eased slider.
+// YouTube Mixer - shared eased slider.
 // Used by both the in-player controls (content script) and the popup, so the
 // two surfaces feel identical. Vanilla JS, no dependencies.
 //
@@ -18,7 +18,7 @@
 //   isBusy()   true while dragging or while the easing loop is settling
 // }
 //
-// onInput fires with the *displayed* (eased) value, 0..1 — drive the real
+// onInput fires with the *displayed* (eased) value, 0..1 - drive the real
 // video.volume from it.
 
 function createMixerSlider(opts) {
