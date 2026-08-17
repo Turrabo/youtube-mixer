@@ -22,27 +22,29 @@ In every `youtube.com/watch` player:
 - The native speaker icon + hover volume slider are removed. In their place,
   inline in the bottom control bar: a **0–100 numeric readout**, a **wide
   slider** that is always expanded, a separate **MUTE** button, and a **FADE**
-  button (5-second ramp to zero, driven by `requestAnimationFrame`).
+  button (5-second ramp to zero).
 - The control bar auto-hides on idle exactly as normal YouTube does; while
   visible, the mixer slider is always expanded (never hover-to-expand).
 - Every video starts **paused and muted** with **looping on**, enforced against
-  autoplay and re-applied when the source changes or YouTube resets `loop`.
-- Everything drives the HTML5 `<video>` element directly (`volume`, `muted`,
-  `loop`, `play`/`pause`) and stays in sync with the real state via the
-  video's media events, so YouTube's own keyboard shortcuts etc. don't desync
-  the UI. Settled volume/mute changes are also mirrored into YouTube's own
-  player state via a MAIN-world bridge (`content/bridge.js`) — otherwise the
-  player re-applies its page-load volume at unpredictable moments (quality,
-  buffer, and ad events) and undoes your mix.
+  autoplay. Keyed on the watch URL's video id, so a routine quality switch
+  mid-playback is not mistaken for a new video.
+- **Volume and mute go through YouTube's own player API** (`setVolume`,
+  `mute`/`unMute`), never by writing `video.volume`. This is load-bearing, and
+  the reasons are measured rather than assumed — see "Volume architecture"
+  below. Play/pause and loop use the element directly, which YouTube does not
+  fight. Because content scripts run in an isolated world and cannot reach the
+  player object, all of this crosses into the page through a MAIN-world bridge
+  (`content/bridge.js`), which also reports state back so the UI tracks changes
+  YouTube makes itself.
 
 Slider feel (same in player and popup):
 
 - **Click** anywhere on the track: volume jumps there immediately.
 - **Drag** the handle: heavily damped follow — the displayed value eases
   toward the pointer each animation frame (`displayed += (target − displayed)
-  × k`, time-constant ≈ 0.45 s), and the real `video.volume` follows the
-  eased value. It trails the hand, smooths jitter, and settles within ~1.5 s
-  of the hand stopping.
+  × k`, time-constant ≈ 0.45 s), and the real volume follows the eased value.
+  It trails the hand, smooths jitter, and settles within ~1.5 s of the hand
+  stopping. The easing never travels past the point where you released.
 
 The popup (toolbar icon) lists every live YouTube watch tab — discarded
 ("sleeping") tabs are filtered out — with thumbnail, title, play/pause, the
@@ -72,6 +74,47 @@ bar sits at the same viewport position in every tab from load. (Note: the
 extension deliberately does not hide or block any YouTube ads or promos —
 doing so would breach Chrome Web Store policy.)
 
+## Volume architecture (why it does not touch `video.volume`)
+
+The obvious implementation — set `video.volume` on the HTML5 element — is
+wrong, in two ways that only show up minutes into real use. Both were measured
+in a scripted browser, not guessed:
+
+YouTube's player holds its own user-volume value (0–100) and writes the
+element's volume itself, applying **per-video loudness normalisation** as it
+goes:
+
+```
+video.volume = userVolume / 100 × normFactor
+```
+
+Measured `normFactor`: 1.0 on two quiet tracks, 0.60 on a loud orchestral one.
+So `video.volume` is not the user's volume, and the player considers itself the
+owner of that property. Hence:
+
+1. **Writes get wiped.** Setting `video.volume` directly holds only until the
+   player next rebuilds its state — a quality or stream-format switch during
+   playback. It then re-applies its own value, undoing your setting at a moment
+   that feels random. Confirmed: a directly-written `0.64` survived 8 s of
+   playback, then snapped to `0.3` the instant a quality change landed.
+2. **Reads ratchet.** Reading `video.volume` back and re-applying it as if it
+   were user volume multiplies by `normFactor` every cycle. With a 0.8166
+   factor: `0.64 → 0.52 → 0.42 → 0.34 …`, decaying geometrically and settling
+   at **2**, where integer rounding becomes a fixed point (push 2 → 0.0163 →
+   rounds back to 2).
+
+The fix is to make the player API the single source of truth: `setVolume` and
+`getVolume` for volume, `mute`/`unMute`/`isMuted` for mute, and nothing writing
+`video.volume` at all. The stored state then always agrees with what you chose,
+so a state rebuild re-applies *your* value, and no read-back loop exists.
+
+The 0–100 readout shows the **user volume** (what `getVolume` returns), not
+`video.volume × 100`. On a loudness-normalised track those differ: 70 on the
+readout is `0.42` on the element, and 70 is the honest number.
+
+Loudness normalisation is left switched on deliberately, since it is what
+YouTube users expect and it keeps layered tracks roughly balanced.
+
 ## Fragile YouTube selectors
 
 YouTube's markup changes without notice. If something stops working, these
@@ -86,7 +129,7 @@ are the assumptions to re-check (all in `content/content.js`,
 | `.ytp-time-display`, `.ytp-chapter-container` | re-centring native controls in the flex row |
 | `yt-navigate-finish` event | SPA navigation hook |
 | `ytd-watch-flexy`, `#player-container-inner`, `#player-container` | player-box aspect lock |
-| `#movie_player` API: `setVolume`, `mute`, `unMute`, `isMuted` | mirroring settled volume into the player's own state (bridge) |
+| `#movie_player` API: `getVolume`, `setVolume`, `mute`, `unMute`, `isMuted`, `playVideo`, `pauseVideo` | all volume/mute control and state, via the bridge. If these disappear the bridge falls back to the raw element, which works but brings the snap-back back |
 
 ## Other assumptions / limitations
 
@@ -103,6 +146,13 @@ are the assumptions to re-check (all in `content/content.js`,
 - The fade is a linear volume ramp over 5 s. Pressing FADE again mid-fade
   stops the ramp, leaving the volume where it is; touching the slider (or
   setting volume from the popup) also cancels an in-flight fade.
+- The fade is driven by a **wall-clock timer, not `requestAnimationFrame`**.
+  Chrome pauses rAF completely in hidden tabs, which froze a fade the moment
+  you switched tabs. Each tick recomputes from elapsed time rather than
+  accumulating, so the ramp still ends at exactly 5 s even if the browser
+  throttles the tick rate in the background; worst case it steps slightly
+  instead of stopping dead. The slider easing still uses rAF, which is correct
+  — you can only drag a slider you can see.
 - Loop uses `video.loop`, so tracks repeat seamlessly but playlist auto-advance
   never happens (intended for ambience use).
 
@@ -112,8 +162,8 @@ are the assumptions to re-check (all in `content/content.js`,
 manifest.json           MV3 manifest
 content/
   content.js            in-player controls, enforcement, popup messaging
-  bridge.js             MAIN-world bridge: mirrors settled volume/mute into
-                        YouTube's player API so it can't snap the mix back
+  bridge.js             MAIN-world bridge: owns all volume/mute via YouTube's
+                        player API, and reports state back to content.js
   content.css           control-bar styles + native volume UI removal
   stabilize.css         layout-shift fixes (document_start)
 shared/
@@ -122,5 +172,10 @@ shared/
 popup/
   popup.html / .css / .js
 icons/                  generated by scripts/make-icons.ps1
-scripts/make-icons.ps1  icon generator (System.Drawing, run once)
+scripts/
+  make-icons.ps1        icon generator (System.Drawing, run once)
+  test-rig.ps1          dev-only: launches Edge headless + muted with the
+                        extension loaded and a CDP port, on a persistent
+                        signed-in profile. `-SignIn` once to authenticate,
+                        `-Headed` for tests needing a real window.
 ```
