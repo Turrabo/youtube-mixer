@@ -99,7 +99,13 @@ would have been found much later and looked like a different bug:
 - **Headless**: the session survives the relaunch and the rig's hard
   Stop-Process, Premium is live (no ad overlay), and the extension injects.
 
-Repeat either with the commands under "Done" above.
+To repeat either:
+
+```
+& scripts	est-rig.ps1            # headless, the default
+& scripts	est-rig.ps1 -Headed    # the suite needs this one
+node testsegression.mjs         # expect 10/10
+```
 
 ## What is left, all of it irreversible
 
