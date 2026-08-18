@@ -3,8 +3,8 @@
 **Owner request, 2026-08-18, in their words: "I really don't want Edge having my
 Google account."**
 
-The Chrome rig is built and works. What remains needs the owner's hands: one
-sign-in, and then an explicit go-ahead to delete the Edge profile.
+**The Chrome rig is signed in and verified: 10 of 10 on 2026-08-18.** What
+remains is the irreversible half, and it needs the owner's explicit go-ahead.
 
 ## Settled: the local exposure is accepted
 
@@ -86,32 +86,28 @@ has to get right, both of which it did not at first:
 Verified in both directions on 2026-08-18: exit 2 on the signed-out Chrome
 profile, and 10 of 10 with no false positive on the Premium Edge profile.
 
-## What is left
+## Verified on Chrome, 2026-08-18
 
-1. **The owner signs in:**
+The owner signed in with the YouTube Premium account (a visible vanilla window,
+no debug port, no extension, sync disabled - nothing here types a credential).
 
-   ```
-   & C:\Source\youtube-mixer\scripts\test-rig.ps1 -SignIn
-   ```
+Both modes were then checked, because the documented default is headless and
+only the suite needs a window, so a session surviving one and not the other
+would have been found much later and looked like a different bug:
 
-   That opens a visible, vanilla Chrome window with no debugging port and no
-   extension, and with sync disabled so a YouTube sign-in cannot offer to pull
-   bookmarks, passwords and history into the rig profile. Sign in with the
-   **YouTube Premium** account, confirm Premium is active, close the window.
+- **Headed**: the regression suite passes **10 of 10**.
+- **Headless**: the session survives the relaunch and the rig's hard
+  Stop-Process, Premium is live (no ad overlay), and the extension injects.
 
-   Nothing in this repo types a credential. This step is the owner's.
+Repeat either with the commands under "Done" above.
 
-2. **Verify on Chrome**, in both modes, because the documented default is
-   headless and only the suite needs a window - a session that survives one and
-   not the other would otherwise be found later:
+## What is left, all of it irreversible
 
-   ```
-   & C:\Source\youtube-mixer\scripts\test-rig.ps1              # headless
-   & C:\Source\youtube-mixer\scripts\test-rig.ps1 -Headed
-   node C:\Source\youtube-mixer\tests\regression.mjs           # expect 10/10
-   ```
+**None of this has been done, and none of it should be without the owner
+saying so.** The Chrome rig works, so the Edge profile is redundant rather than
+load-bearing - which is not the same as safe to delete.
 
-3. **Sign the Google account out inside Edge, before anything is deleted.**
+1. **Sign the Google account out inside Edge, before anything is deleted.**
    This is the step that actually answers the request, and it is ordered before
    the deletion deliberately: it revokes the session server-side, whereas
    deleting the directory only removes the local copy. **Once the directory is
@@ -123,20 +119,20 @@ profile, and 10 of 10 with no false positive on the Premium Edge profile.
    Check both, since the sync identity is arguably what "Edge having my Google
    account" means.
 
-4. **Close Edge**, and confirm no process still holds the profile. A running
+2. **Close Edge**, and confirm no process still holds the profile. A running
    Edge holds locks, and a delete against a locked profile half-succeeds.
 
-5. **Then delete the profile**, and retire the ledger entry with it:
+3. **Then delete the profile**, and retire the ledger entry with it:
 
    ```
    devports remove youtube-mixer-rig -DeleteProfile
    ```
 
    One command keeps the two halves atomic, so the ledger never describes a
-   profile that no longer exists. It also makes the step 3 sign-out ordering
+   profile that no longer exists. It also makes the step 1 sign-out ordering
    load-bearing, which is the point.
 
-6. **Update `~/.claude/docs/unpacked-extensions.md`.** It names
+4. **Update `~/.claude/docs/unpacked-extensions.md`.** It names
    `youtube-mixer-rig` by name as the live instance of its first fallback for if
    the CDP `Extensions` domain breaks - and that domain is marked
    `experimental: true`, so it can be withdrawn without deprecation. Retiring the
@@ -170,8 +166,8 @@ by finishing here alone.
 
 ## Done when
 
-- The rig runs on Chrome with its extension loaded at launch, and the suite
-  passes 10 of 10 there. **(Blocked only on the sign-in.)**
+- ~~The rig runs on Chrome with its extension loaded at launch, and the suite
+  passes 10 of 10 there.~~ **Done 2026-08-18.**
 - The Edge profile is gone, Edge no longer holds the owner's Google account, the
   `youtube-mixer-rig` entry is retired, and `unpacked-extensions.md` no longer
   points at it.
