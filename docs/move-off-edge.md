@@ -102,9 +102,9 @@ would have been found much later and looked like a different bug:
 To repeat either:
 
 ```
-& scripts	est-rig.ps1            # headless, the default
-& scripts	est-rig.ps1 -Headed    # the suite needs this one
-node testsegression.mjs         # expect 10/10
+& scripts/test-rig.ps1            # headless, the default
+& scripts/test-rig.ps1 -Headed    # the suite needs this one
+node tests/regression.mjs         # expect 10/10
 ```
 
 ## What is left, all of it irreversible
