@@ -3,41 +3,28 @@
 **Owner request, 2026-08-18, in their words: "I really don't want Edge having my
 Google account."**
 
-The Chrome rig is built and works. What remains needs the owner: one decision,
-one sign-in, and then an explicit go-ahead to delete the Edge profile.
+The Chrome rig is built and works. What remains needs the owner's hands: one
+sign-in, and then an explicit go-ahead to delete the Edge profile.
 
-## Decide this first: the Chrome rig has the same local exposure Edge did
+## Settled: the local exposure is accepted
 
-**The move does not remove the exposure it looks like it removes, and that
-should be said plainly rather than discovered later.**
+**Owner decision, 2026-08-18: accept it and sign the rig in.**
 
-Every automated run launches the rig profile with `--remote-debugging-port`
-bound, and that is the profile step 2 signs a Google account into. An open CDP
-port on a profile holding a live session is a local read primitive over that
-session: anything that can reach the port can read the cookies. The machine's
-own convention says so - `claude-general` deliberately carries **no** debug port
-for exactly this reason (`~/.claude/docs/unpacked-extensions.md`).
+The rig binds a debug port on the profile that holds the Google session, and
+anything on this machine able to reach that port can read that session. The
+Edge rig had the identical property on 9333, so the move to Chrome neither
+introduced nor worsened it - but it is worth saying plainly that moving the
+account from Edge to Chrome does not by itself remove this, because the plan
+previously implied `-SignIn` handled it. It does not: omitting the port during
+sign-in is about Google's automation heuristics, not the profile's lifetime.
 
-`-SignIn` avoids the port during sign-in, which is about Google's automation
-heuristics, not about the profile's lifetime. It is not a mitigation for this.
+Weighed against a rig that never signs in at all (the tests would have to
+tolerate ads instead), the owner judged the practical risk small: the port
+listens on loopback only, on a single-user machine. Recorded here so it is not
+re-opened every time someone notices the port.
 
-The Edge rig had the identical property on port 9333, so this is inherited
-rather than newly introduced, and the move is not a regression. But "Edge should
-not have my Google account" is not obviously satisfied by "Chrome has it instead,
-behind a debug port".
-
-Three ways forward. **This is the owner's call:**
-
-1. **Accept it.** The port is loopback-only and this is a single-user machine.
-   Same risk as before, now on Chrome. Nothing more to do.
-2. **Do not sign the rig in at all.** The only thing the account buys is ad-free
-   playback. If the suite instead skipped or tolerated ads, the rig would need
-   no account anywhere. That is more test work and removes the exposure
-   entirely.
-3. **Keep the account but not the port**, by driving the rig through something
-   other than CDP. Large change; the whole harness is CDP.
-
-Nothing below is blocked on this except the choice of whether step 2 happens.
+**Do not "fix" this by removing the port.** The whole harness drives the browser
+through it.
 
 ## Why it was on Edge
 
@@ -101,9 +88,7 @@ profile, and 10 of 10 with no false positive on the Premium Edge profile.
 
 ## What is left
 
-1. **Settle the exposure decision** at the top of this file.
-
-2. **The owner signs in**, if the decision was to keep an account:
+1. **The owner signs in:**
 
    ```
    & C:\Source\youtube-mixer\scripts\test-rig.ps1 -SignIn
@@ -116,7 +101,7 @@ profile, and 10 of 10 with no false positive on the Premium Edge profile.
 
    Nothing in this repo types a credential. This step is the owner's.
 
-3. **Verify on Chrome**, in both modes, because the documented default is
+2. **Verify on Chrome**, in both modes, because the documented default is
    headless and only the suite needs a window - a session that survives one and
    not the other would otherwise be found later:
 
@@ -126,7 +111,7 @@ profile, and 10 of 10 with no false positive on the Premium Edge profile.
    node C:\Source\youtube-mixer\tests\regression.mjs           # expect 10/10
    ```
 
-4. **Sign the Google account out inside Edge, before anything is deleted.**
+3. **Sign the Google account out inside Edge, before anything is deleted.**
    This is the step that actually answers the request, and it is ordered before
    the deletion deliberately: it revokes the session server-side, whereas
    deleting the directory only removes the local copy. **Once the directory is
@@ -138,20 +123,20 @@ profile, and 10 of 10 with no false positive on the Premium Edge profile.
    Check both, since the sync identity is arguably what "Edge having my Google
    account" means.
 
-5. **Close Edge**, and confirm no process still holds the profile. A running
+4. **Close Edge**, and confirm no process still holds the profile. A running
    Edge holds locks, and a delete against a locked profile half-succeeds.
 
-6. **Then delete the profile**, and retire the ledger entry with it:
+5. **Then delete the profile**, and retire the ledger entry with it:
 
    ```
    devports remove youtube-mixer-rig -DeleteProfile
    ```
 
    One command keeps the two halves atomic, so the ledger never describes a
-   profile that no longer exists. It also makes step 4's ordering load-bearing,
-   which is the point.
+   profile that no longer exists. It also makes the step 3 sign-out ordering
+   load-bearing, which is the point.
 
-7. **Update `~/.claude/docs/unpacked-extensions.md`.** It names
+6. **Update `~/.claude/docs/unpacked-extensions.md`.** It names
    `youtube-mixer-rig` by name as the live instance of its first fallback for if
    the CDP `Extensions` domain breaks - and that domain is marked
    `experimental: true`, so it can be withdrawn without deprecation. Retiring the
@@ -185,7 +170,6 @@ by finishing here alone.
 
 ## Done when
 
-- The exposure decision is recorded.
 - The rig runs on Chrome with its extension loaded at launch, and the suite
   passes 10 of 10 there. **(Blocked only on the sign-in.)**
 - The Edge profile is gone, Edge no longer holds the owner's Google account, the
