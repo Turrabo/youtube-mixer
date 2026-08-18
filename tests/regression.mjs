@@ -40,6 +40,36 @@ await waitFor(s, `!!document.querySelector('#movie_player .ytm-controls .mixer-s
 await sleep(4000);
 await rejectConsent(s);
 
+// The suite silently depends on an ad-free session. A pre-roll ad draws a
+// full-bleed clickable overlay across the player, so every synthesized click
+// below lands on ytp-visit-advertiser-link instead of the control it names -
+// and the suite then reports "slider click sets volume to ~70 -> got 100",
+// which reads as an extension bug and is not one.
+//
+// That is not hypothetical: it is exactly what a fresh Chrome profile did on
+// 2026-08-18, while the Premium-signed-in Edge profile passed 10/10 on the
+// same build. Fail loudly and name the cause instead.
+async function assertNoAd() {
+  const ad = await evalIn(s, `(() => {
+    const p = document.getElementById('movie_player');
+    return {
+      showing: !!(p && p.classList.contains('ad-showing')),
+      overlay: !!document.querySelector('.ytp-ad-player-overlay, .ytp-visit-advertiser-link'),
+    };
+  })()`);
+  if (ad.showing || ad.overlay) {
+    console.error(
+      '\nABORT: an ad is covering the player, so no click below would reach its target.\n' +
+      '  This profile is not signed in to a YouTube Premium account.\n' +
+      '  Sign in once:  pwsh -NoProfile -Command "& scripts/test-rig.ps1 -SignIn"\n' +
+      '  then re-run the rig and this suite.',
+    );
+    process.exit(2);
+  }
+}
+
+await assertNoAd();
+
 async function click(selector, fraction) {
   const box = await evalIn(s, `(() => {
     const el = document.querySelector(${JSON.stringify(selector)});

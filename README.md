@@ -235,8 +235,10 @@ scripts/
   package.ps1           builds the store zip from an allowlist; version comes
                         from manifest.json
   make-icons.ps1        icon generator (System.Drawing, run once)
-  test-rig.ps1          dev-only: launches Edge headless + muted with the
+  test-rig.ps1          dev-only: launches Chrome headless + muted with the
                         extension loaded and a CDP port, on a persistent
                         signed-in profile. `-SignIn` once to authenticate,
-                        `-Headed` for tests needing a real window.
+                        `-Headed` for tests needing a real window. Port and
+                        profile come from the machine-wide devports ledger
+                        entry `youtube-mixer-chrome`.
 ```

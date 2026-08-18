@@ -4,7 +4,35 @@
 // Used by the regression suite to drive a real browser with the extension
 // loaded. Start the browser first with scripts/test-rig.ps1.
 
-const BASE = 'http://127.0.0.1:9333';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+// The rig's port has ONE home, the machine-wide devports ledger, so this reads
+// it rather than repeating the number. Repeating it is what left this file
+// pointing at the retired Edge rig's 9333 after the rig moved to Chrome, and
+// `devports check` fails on a bare port literal at a bind site for exactly
+// that reason.
+//
+// Falls back rather than throwing, mirroring devports.py's port_for(name,
+// default=...): a missing ledger should not stop a developer running the
+// suite, it should just mean the documented default.
+const RIG = 'youtube-mixer-chrome';
+const RIG_PORT_FALLBACK = 9236;
+
+function rigPort() {
+  const path =
+    process.env.DEVPORTS_LEDGER ||
+    join(process.env.USERPROFILE || process.env.HOME || '', '.claude', 'state', 'ports', 'ledger.json');
+  try {
+    const ledger = JSON.parse(readFileSync(path, 'utf8'));
+    const port = ledger?.reservations?.[RIG]?.ports?.[0];
+    return Number(port) || RIG_PORT_FALLBACK;
+  } catch {
+    return RIG_PORT_FALLBACK;
+  }
+}
+
+const BASE = `http://127.0.0.1:${rigPort()}`;
 
 export async function listTargets() {
   return (await fetch(BASE + '/json')).json();
