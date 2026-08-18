@@ -3,8 +3,41 @@
 **Owner request, 2026-08-18, in their words: "I really don't want Edge having my
 Google account."**
 
-The Chrome rig is built and works. What remains needs the owner's own hands:
+The Chrome rig is built and works. What remains needs the owner: one decision,
 one sign-in, and then an explicit go-ahead to delete the Edge profile.
+
+## Decide this first: the Chrome rig has the same local exposure Edge did
+
+**The move does not remove the exposure it looks like it removes, and that
+should be said plainly rather than discovered later.**
+
+Every automated run launches the rig profile with `--remote-debugging-port`
+bound, and that is the profile step 2 signs a Google account into. An open CDP
+port on a profile holding a live session is a local read primitive over that
+session: anything that can reach the port can read the cookies. The machine's
+own convention says so - `claude-general` deliberately carries **no** debug port
+for exactly this reason (`~/.claude/docs/unpacked-extensions.md`).
+
+`-SignIn` avoids the port during sign-in, which is about Google's automation
+heuristics, not about the profile's lifetime. It is not a mitigation for this.
+
+The Edge rig had the identical property on port 9333, so this is inherited
+rather than newly introduced, and the move is not a regression. But "Edge should
+not have my Google account" is not obviously satisfied by "Chrome has it instead,
+behind a debug port".
+
+Three ways forward. **This is the owner's call:**
+
+1. **Accept it.** The port is loopback-only and this is a single-user machine.
+   Same risk as before, now on Chrome. Nothing more to do.
+2. **Do not sign the rig in at all.** The only thing the account buys is ad-free
+   playback. If the suite instead skipped or tolerated ads, the rig would need
+   no account anywhere. That is more test work and removes the exposure
+   entirely.
+3. **Keep the account but not the port**, by driving the rig through something
+   other than CDP. Large change; the whole harness is CDP.
+
+Nothing below is blocked on this except the choice of whether step 2 happens.
 
 ## Why it was on Edge
 
@@ -19,100 +52,149 @@ CDP, via `~/.claude/scripts/browser-extensions.mjs`. Canonical write-up:
 ## Done
 
 - **Headless Chrome accepts an unpacked extension over CDP.** Verified directly
-  against `Extensions.loadUnpacked` on a throwaway profile, because the rig runs
-  headless by default and headless was the part that could plausibly have
-  refused. It does not refuse.
-- **Ledger entry `youtube-mixer-chrome`** created with `devports new`: Chrome,
-  port 9236, profile `~/.claude/state/browsers/youtube-mixer-chrome`, and an
+  against `Extensions.loadUnpacked`, because the rig runs headless by default
+  and headless was the part that could plausibly have refused. It does not.
+- **Ledger entry `youtube-mixer-chrome`**: Chrome, port 9236, profile
+  `%USERPROFILE%\.claude\state\browsers\youtube-mixer-chrome`, with an
   `extensions` list so the loader applies the extension on every launch.
-- **`scripts/test-rig.ps1` rewritten for Chrome.** Same three modes. The
-  extension now goes in over CDP after launch rather than by flag, and the
-  script fails loudly if that step does not succeed - a rig with no extension in
-  it looks exactly like a working browser, which is the whole trap.
-- **Port and profile now come from the ledger** rather than being repeated in
-  the script and again in `tests/cdp.mjs`. That hardcode was already failing
-  `devports check`; the fix was to stop repeating the number, not to raise the
-  baseline. `devports check` is now clean.
+- **`scripts/test-rig.ps1` rewritten for Chrome.** The extension goes in over
+  CDP after launch rather than by flag. The script now polls for CDP to a
+  deadline instead of sleeping a fixed five seconds (a headed launch was
+  measured exceeding that), waits for a previous instance to actually exit
+  before launching (Chrome's singleton would otherwise hand the launch to the
+  old browser and the run would silently drive the wrong one), and **stops the
+  browser on any failure** so a rig that is up but empty cannot be mistaken for
+  a working one.
+- **Port and profile come from the ledger.** `tests/cdp.mjs` keeps a documented
+  fallback for a machine without the ledger and now says when it uses it; a
+  ledger that exists but has no such reservation throws instead, because
+  falling back there would drive whatever else was later given that port.
 - **The extension injects on Chrome**: `.ytm-controls` and its buttons appear on
   a YouTube watch page in the Chrome rig.
-- **The regression suite runs**, 9 of 10 on Chrome against 10 of 10 on Edge.
+- **The suite guards against ads.** See below.
 
-## The one failing case, and why it is not a Chrome problem
+## The ad guard, and the failure that produced it
 
-`slider click sets volume to ~70` got 100 on Chrome, deterministically, twice.
+On Chrome the suite failed `slider click sets volume to ~70` with 100,
+deterministically. Not the extension and not Chrome's input handling: the same
+press and release at the same point sets the volume correctly on its own.
+Instrumenting the suite's own path found `document.elementFromPoint` at the
+click target returning `ytp-visit-advertiser-link`. **A pre-roll ad was covering
+the player**, so the click reached the advertiser overlay instead of the slider.
 
-It is not the extension and not Chrome's input handling: the identical
-press/release at the identical point sets the volume correctly when run on its
-own. Instrumenting the suite's own path found the cause -
-`document.elementFromPoint` at the click target returned
-`ytp-visit-advertiser-link`. **A pre-roll ad was covering the player**, so the
-click reached the advertiser overlay instead of the slider.
+Edge passed because that profile is signed in to **YouTube Premium** and sees no
+ads. The Chrome profile is signed in to nothing.
 
-Edge passes because that profile is signed in to the owner's **YouTube Premium**
-account and therefore sees no ads. The fresh Chrome profile is not signed in to
-anything.
+The suite now detects this and aborts with that explanation, exit 2, rather than
+reporting a volume number that reads as an extension bug. Two things that guard
+has to get right, both of which it did not at first:
 
-So the failure is a signed-out profile, which step 1 below fixes. The suite now
-detects this and aborts with that explanation rather than reporting a volume
-number, because "slider click sets volume to ~70 -> got 100" reads as an
-extension bug and is not one. Verified both ways: it exits 2 on the signed-out
-Chrome profile, and does not fire on the Premium Edge profile, which still
-passes 10/10.
+- **It runs before every click, not once up front.** The extension forces the
+  video to start paused and a pre-roll begins on PLAY, so a single check at the
+  top inspects the one moment an ad cannot be showing.
+- **It requires a visibly sized overlay.** YouTube leaves ad containers in the
+  DOM at zero size after an ad ends, and a bare `querySelector` would abort a
+  perfectly good run with a confidently wrong "not signed in to Premium".
+
+Verified in both directions on 2026-08-18: exit 2 on the signed-out Chrome
+profile, and 10 of 10 with no false positive on the Premium Edge profile.
 
 ## What is left
 
-1. **The owner signs in.** With the **YouTube Premium** account, which is the
-   one the rig should run as.
+1. **Settle the exposure decision** at the top of this file.
+
+2. **The owner signs in**, if the decision was to keep an account:
 
    ```
-   pwsh -NoProfile -Command "& C:\Source\youtube-mixer\scripts\test-rig.ps1 -SignIn"
+   & C:\Source\youtube-mixer\scripts\test-rig.ps1 -SignIn
    ```
 
    That opens a visible, vanilla Chrome window with no debugging port and no
-   extension - deliberately, because Google challenges a sign-in that looks
-   automated, and an open CDP port on a profile holding a Google session is a
-   read primitive over that session. It is the only mode that takes keyboard
-   focus. Sign in, confirm Premium is active, close the window.
+   extension, and with sync disabled so a YouTube sign-in cannot offer to pull
+   bookmarks, passwords and history into the rig profile. Sign in with the
+   **YouTube Premium** account, confirm Premium is active, close the window.
 
    Nothing in this repo types a credential. This step is the owner's.
 
-2. **Re-run the suite on Chrome** and confirm 10 of 10:
+3. **Verify on Chrome**, in both modes, because the documented default is
+   headless and only the suite needs a window - a session that survives one and
+   not the other would otherwise be found later:
 
    ```
-   pwsh -NoProfile -Command "& C:\Source\youtube-mixer\scripts\test-rig.ps1 -Headed"
-   node C:\Source\youtube-mixer\tests\regression.mjs
+   & C:\Source\youtube-mixer\scripts\test-rig.ps1              # headless
+   & C:\Source\youtube-mixer\scripts\test-rig.ps1 -Headed
+   node C:\Source\youtube-mixer\tests\regression.mjs           # expect 10/10
    ```
 
-3. **Then destroy the Edge profile**, and only then.
+4. **Sign the Google account out inside Edge, before anything is deleted.**
+   This is the step that actually answers the request, and it is ordered before
+   the deletion deliberately: it revokes the session server-side, whereas
+   deleting the directory only removes the local copy. **Once the directory is
+   gone, this can no longer be done from the profile at all** - the fallback is
+   to revoke the device at `myaccount.google.com/device-activity`, which is
+   worth knowing but is the worse path.
 
-## The part to be careful about
+   Signing out of YouTube is not the same as removing an Edge *sync* identity.
+   Check both, since the sync identity is arguably what "Edge having my Google
+   account" means.
 
-Deleting a browser profile removes saved sessions and anything stored under it,
-and it is not recoverable. The standing rule is verify before destructive
-action, so this wants an explicit look at what
-`~/.claude/state/youtube-mixer/test-profile` holds and an explicit confirmation
-from the owner - not just the request above, which was made before anyone had
-checked what is in there.
+5. **Close Edge**, and confirm no process still holds the profile. A running
+   Edge holds locks, and a delete against a locked profile half-succeeds.
 
-**Sign out of the Google account inside Edge before deleting the directory.**
-That revokes the session server-side rather than only removing the local copy of
-it, which is the half that actually addresses "I don't want Edge having my
-account".
+6. **Then delete the profile**, and retire the ledger entry with it:
 
-Retire the `youtube-mixer-rig` ledger entry at the same time
-(`devports remove youtube-mixer-rig`). It still states the Chrome 137 reason as
-live fact and points at the Edge profile. Do it in the same pass as the
-deletion, so the ledger never describes a profile that no longer exists.
+   ```
+   devports remove youtube-mixer-rig -DeleteProfile
+   ```
+
+   One command keeps the two halves atomic, so the ledger never describes a
+   profile that no longer exists. It also makes step 4's ordering load-bearing,
+   which is the point.
+
+7. **Update `~/.claude/docs/unpacked-extensions.md`.** It names
+   `youtube-mixer-rig` by name as the live instance of its first fallback for if
+   the CDP `Extensions` domain breaks - and that domain is marked
+   `experimental: true`, so it can be withdrawn without deprecation. Retiring the
+   rig removes that escape hatch and leaves the doc stale. Decide whether
+   something replaces it, and say so there.
+
+## What the deletion destroys
+
+The plan asks for this rather than assuming, and here it is. Inventoried
+2026-08-18 by counting rows only; no stored value was read.
+
+| | |
+|---|---|
+| Total size | 572 MB, nearly all Edge's own component and cache data |
+| Saved passwords | **0** |
+| Saved credit cards | **0** |
+| Autofill entries | 1 |
+| Cookies | 77 |
+| Bookmarks | 2 KB, and a history database |
+
+So the profile is a signed-in session and very little else. That makes the
+deletion a much smaller loss than 572 MB suggests, and it is still irreversible,
+which is why it stays the owner's explicit call.
+
+## Scope worth confirming
+
+This plan treats "Edge having my Google account" as being about the rig profile.
+**Edge's own default profile was not checked.** If the account is signed into
+that too, this work does not touch it, and the request is probably not satisfied
+by finishing here alone.
 
 ## Done when
 
-- The rig runs on Chrome with its extension loaded automatically at launch, and
-  the suite passes 10 of 10 there. **(Blocked only on the sign-in.)**
-- The Edge profile is gone, Edge no longer holds the owner's Google account, and
-  the `youtube-mixer-rig` entry is retired.
+- The exposure decision is recorded.
+- The rig runs on Chrome with its extension loaded at launch, and the suite
+  passes 10 of 10 there. **(Blocked only on the sign-in.)**
+- The Edge profile is gone, Edge no longer holds the owner's Google account, the
+  `youtube-mixer-rig` entry is retired, and `unpacked-extensions.md` no longer
+  points at it.
 
 ## Worth knowing regardless
 
-The suite depends on an ad-free session, and now says so. Any future test that
-drives synthesized clicks at the player has the same dependency - an ad overlay
-swallows every one of them - so run `assertNoAd` before adding more.
+Any future test driving synthesized clicks at the player has the same ad
+dependency - an overlay swallows every one of them. The guard is
+`abortOnAd` in `tests/regression.mjs`; it is local to that file, so lift it into
+`tests/cdp.mjs` if a second suite ever needs it.

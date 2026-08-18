@@ -22,9 +22,15 @@
 #                             keyboard focus.
 #   .\test-rig.ps1            headless + muted + extension + CDP port.
 #                             No window exists, so nothing can steal focus.
-#   .\test-rig.ps1 -Headed    same, but a real window parked off-screen.
-#                             Needed only for tests that depend on genuine
-#                             tab visibility (background-tab behaviour).
+#   .\test-rig.ps1 -Headed    same, but a real window parked off-screen. The
+#                             regression suite needs this: its fade case
+#                             disables requestAnimationFrame and it drives real
+#                             mouse events. Off-screen is not the same as
+#                             focus-safe - the window is real and Chrome may
+#                             still activate it briefly on launch.
+#   -NoExtension              launch the browser without loading the extension.
+#                             For establishing a baseline, or checking whether
+#                             a symptom is the extension's at all.
 #
 # Audio: --mute-audio silences the speakers at the browser output level.
 # video.volume, video.muted and all media events stay fully live, so
@@ -60,21 +66,42 @@ if (-not (Test-Path $chrome)) { throw "Chrome not found at $chrome" }
 
 New-Item -ItemType Directory -Force $profileDir | Out-Null
 
-# A profile can only be open in one browser instance at a time; clear any
-# instance still holding this one.
-Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -and $_.CommandLine -match [regex]::Escape($profileDir) } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-Start-Sleep -Milliseconds 800
+# A profile can only be open in one browser instance at a time. If an old
+# instance survives, Chrome's singleton hands our URL to IT and exits, so the
+# probe below passes against the previous run's browser - a -Headed launch can
+# report "headed" while driving the headless one. So confirm the processes are
+# actually gone rather than sleeping and hoping.
+#
+# Matches on the --user-data-dir token, not a bare path substring, so a sibling
+# profile whose name merely starts with this one is not killed too.
+function Get-RigProcesses {
+    Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match ("--user-data-dir=""?" + [regex]::Escape($profileDir) + '(""|\s|$)') }
+}
+
+Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+$deadline = (Get-Date).AddSeconds(15)
+while ((Get-RigProcesses | Measure-Object).Count -gt 0 -and (Get-Date) -lt $deadline) {
+    Start-Sleep -Milliseconds 250
+}
+if ((Get-RigProcesses | Measure-Object).Count -gt 0) {
+    throw "A previous rig instance on this profile would not exit. Chrome's singleton would hand this launch to it, so the run would silently drive the old browser. Close it and retry."
+}
 
 if ($SignIn) {
     # Deliberately minimal: no CDP port, no extension, no automation flags.
     # Google challenges a sign-in that looks automated, and an open CDP port on
     # a profile holding a Google session is a read primitive over that session.
+    # --disable-sync matters MORE here than in the automated modes, not less:
+    # this is the one mode where a Google account is entered, so it is the one
+    # mode where Chrome can offer to turn Sync on and pull the owner's
+    # bookmarks, passwords and history into the rig profile. Adding the flag
+    # later does not remove what already synced.
     Start-Process $chrome -ArgumentList @(
         "--user-data-dir=$profileDir",
         '--no-first-run',
         '--no-default-browser-check',
+        '--disable-sync',
         'https://www.youtube.com'
     )
     Write-Host "Sign-in window opened (this one DOES take focus)."
@@ -106,14 +133,27 @@ if ($Headed) {
 $chromeArgs += 'about:blank'
 
 Start-Process $chrome -ArgumentList $chromeArgs -WindowStyle Hidden
-Start-Sleep -Seconds 5
 
-try {
-    $v = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/json/version" -TimeoutSec 10).Content | ConvertFrom-Json
-    Write-Host ("CDP up on {0} : {1}" -f $port, $v.Browser)
-} catch {
-    throw "Chrome did not expose CDP on port $port"
+# Poll to a deadline rather than sleeping a fixed guess. -TimeoutSec does not
+# help before the browser is listening: the TCP connect is REFUSED immediately,
+# so Invoke-WebRequest throws at once and a fixed sleep is the entire wait. A
+# headed launch on this machine was measured taking longer than 5 seconds, so
+# the old 5-second sleep was a flake waiting to happen.
+$v = $null
+$deadline = (Get-Date).AddSeconds(45)
+while ((Get-Date) -lt $deadline) {
+    try {
+        $v = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/json/version" -TimeoutSec 5).Content | ConvertFrom-Json
+        break
+    } catch {
+        Start-Sleep -Milliseconds 500
+    }
 }
+if (-not $v) {
+    Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+    throw "Chrome did not expose CDP on port $port within 45s. Browser stopped so it cannot be mistaken for a working rig."
+}
+Write-Host ("CDP up on {0} : {1}" -f $port, $v.Browser)
 
 $extensionLoaded = 'skipped'
 if (-not $NoExtension) {
@@ -122,20 +162,37 @@ if (-not $NoExtension) {
     # code; a rig with no extension in it looks exactly like a working browser,
     # which is the failure this check exists to catch.
     $loader = Join-Path $env:USERPROFILE '.claude\scripts\browser-extensions.mjs'
+    if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
+        Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "node is not on PATH, so the extension cannot be loaded. Browser stopped rather than left running and empty."
+    }
+    if (-not (Test-Path $loader)) {
+        Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "Loader not found at $loader. See ~/.claude/docs/unpacked-extensions.md."
+    }
+
+    # --wait exists for exactly this caller: the browser was launched moments
+    # ago and its Extensions domain may not be answering yet.
     $prevNative = $PSNativeCommandUseErrorActionPreference
     $prevEap = $ErrorActionPreference
     $PSNativeCommandUseErrorActionPreference = $false
     $ErrorActionPreference = 'Continue'
+    $rc = $null
     try {
-        $out = & node $loader load $ledgerName 2>&1
+        $out = & node $loader load $ledgerName --wait 20 2>&1
         $rc = $LASTEXITCODE
     } finally {
         $PSNativeCommandUseErrorActionPreference = $prevNative
         $ErrorActionPreference = $prevEap
     }
     $out | ForEach-Object { Write-Host "  $_" }
-    if ($rc -ne 0) {
-        throw "Extension did not load (browser-extensions.mjs exit $rc). The browser is up but EMPTY - do not treat a passing test as meaningful."
+
+    # A null $rc means the call never ran, in which case $LASTEXITCODE would
+    # still hold 0 from the devports calls above and an empty browser would
+    # report as a working rig.
+    if ($null -eq $rc -or $rc -ne 0) {
+        Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        throw "Extension did not load (browser-extensions.mjs exit $rc). Browser stopped: a rig that is up but EMPTY looks exactly like a working one, and a passing test against it would mean nothing."
     }
     $extensionLoaded = 'yes'
 }

@@ -7,29 +7,51 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// The rig's port has ONE home, the machine-wide devports ledger, so this reads
-// it rather than repeating the number. Repeating it is what left this file
-// pointing at the retired Edge rig's 9333 after the rig moved to Chrome, and
-// `devports check` fails on a bare port literal at a bind site for exactly
-// that reason.
+// The rig's port has ONE home, the machine-wide devports ledger. This file
+// used to repeat it, which is how it ended up pointing at the retired Edge
+// rig's 9333 after the rig moved to Chrome.
 //
-// Falls back rather than throwing, mirroring devports.py's port_for(name,
-// default=...): a missing ledger should not stop a developer running the
-// suite, it should just mean the documented default.
+// The two failure modes are deliberately NOT treated alike, because they mean
+// opposite things:
+//
+//   Ledger unreadable  -> a developer without the machine's ledger. Fall back
+//                         to the documented default, and SAY SO, because a
+//                         silent fallback that happens to work is how the
+//                         duplicate survived the last cleanup.
+//   Ledger present but -> a real misconfiguration: the entry was renamed or
+//   entry missing         removed. Throw. Falling back here would silently
+//                         drive whatever else has since been allocated that
+//                         port, which is worse than not running at all.
 const RIG = 'youtube-mixer-chrome';
 const RIG_PORT_FALLBACK = 9236;
 
-function rigPort() {
-  const path =
+function ledgerPath() {
+  return (
     process.env.DEVPORTS_LEDGER ||
-    join(process.env.USERPROFILE || process.env.HOME || '', '.claude', 'state', 'ports', 'ledger.json');
+    join(process.env.USERPROFILE || process.env.HOME || '', '.claude', 'state', 'ports', 'ledger.json')
+  );
+}
+
+function rigPort() {
+  const path = ledgerPath();
+  let ledger;
   try {
-    const ledger = JSON.parse(readFileSync(path, 'utf8'));
-    const port = ledger?.reservations?.[RIG]?.ports?.[0];
-    return Number(port) || RIG_PORT_FALLBACK;
+    ledger = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
+    console.warn(
+      `[cdp] no readable devports ledger at ${path}; falling back to port ${RIG_PORT_FALLBACK}. ` +
+        `If the rig is on a different port this run will drive the wrong browser or nothing at all.`,
+    );
     return RIG_PORT_FALLBACK;
   }
+  const port = Number(ledger?.reservations?.[RIG]?.ports?.[0]);
+  if (!port) {
+    throw new Error(
+      `devports ledger at ${path} has no port for reservation '${RIG}'. ` +
+        `Recreate it with: devports new ${RIG} -Engine chrome -Owner youtube-mixer`,
+    );
+  }
+  return port;
 }
 
 const BASE = `http://127.0.0.1:${rigPort()}`;

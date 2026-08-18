@@ -49,28 +49,67 @@ await rejectConsent(s);
 // That is not hypothetical: it is exactly what a fresh Chrome profile did on
 // 2026-08-18, while the Premium-signed-in Edge profile passed 10/10 on the
 // same build. Fail loudly and name the cause instead.
-async function assertNoAd() {
-  const ad = await evalIn(s, `(() => {
+//
+// Two things this gets wrong if done naively, both found in review:
+//
+//   Checking once, up front, checks the ONE moment an ad cannot be showing.
+//   The extension forces the video to start paused, and a pre-roll begins on
+//   PLAY - which this suite does not do until well after such a check. So the
+//   guard runs inside click(), immediately before each click it protects.
+//
+//   Bare querySelector false-positives. YouTube leaves ad containers in the
+//   DOM at zero size after an ad ends, and a hidden leftover would abort the
+//   run with a confidently wrong "not signed in to Premium". Only a box with
+//   real area counts. The ad-showing class is reliable on its own and is
+//   checked separately.
+async function adState() {
+  return evalIn(s, `(() => {
     const p = document.getElementById('movie_player');
-    return {
-      showing: !!(p && p.classList.contains('ad-showing')),
-      overlay: !!document.querySelector('.ytp-ad-player-overlay, .ytp-visit-advertiser-link'),
-    };
+    const visible = [...document.querySelectorAll(
+      '.ytp-ad-player-overlay, .ytp-ad-player-overlay-layout, .ytp-visit-advertiser-link')]
+      .some(el => { const r = el.getBoundingClientRect(); return r.width > 1 && r.height > 1; });
+    return { showing: !!(p && p.classList.contains('ad-showing')), overlay: visible };
   })()`);
-  if (ad.showing || ad.overlay) {
-    console.error(
-      '\nABORT: an ad is covering the player, so no click below would reach its target.\n' +
-      '  This profile is not signed in to a YouTube Premium account.\n' +
-      '  Sign in once:  pwsh -NoProfile -Command "& scripts/test-rig.ps1 -SignIn"\n' +
-      '  then re-run the rig and this suite.',
-    );
-    process.exit(2);
-  }
 }
 
-await assertNoAd();
+async function abortOnAd(where) {
+  const ad = await adState();
+  if (!ad.showing && !ad.overlay) return;
+  console.error(
+    `\nABORT: an ad is covering the player (before ${where}), so the click would not reach its target.\n` +
+    '  This profile is not signed in to a YouTube Premium account.\n' +
+    '  Sign in once:  & scripts\\test-rig.ps1 -SignIn\n' +
+    '  then re-run the rig and this suite.',
+  );
+  await die(2);
+}
+
+// process.exit and thrown errors both bypass the teardown at the end of the
+// file, which leaves an orphan tab in the persistent rig profile on every
+// aborted run. Route both through here.
+//
+// Closing the socket and calling process.exit in the same tick aborts the
+// process inside libuv ("!(handle->flags & UV_HANDLE_CLOSING)"), which turns a
+// deliberate exit 2 into a crash exit 127 - so the caller sees a broken suite
+// rather than the reason it stopped. Let the close settle before exiting.
+let cleanedUp = false;
+async function cleanup() {
+  if (cleanedUp) return;
+  cleanedUp = true;
+  try { await closeTab(t.id); } catch { /* browser already gone */ }
+  try { s.close(); } catch { /* already closed */ }
+  await sleep(250);
+}
+async function die(code) {
+  await cleanup();
+  process.exit(code);
+}
+process.on('uncaughtException', async (e) => { console.error(e); await die(1); });
+
+await abortOnAd('the suite starts');
 
 async function click(selector, fraction) {
+  await abortOnAd(selector);
   const box = await evalIn(s, `(() => {
     const el = document.querySelector(${JSON.stringify(selector)});
     if (!el) return null;
