@@ -7,7 +7,7 @@ code; it's what you type into the listing and privacy tabs.
 YouTube Mixer
 
 ## Summary (132 chars max)
-Turn open YouTube tabs into a live audio mixer: wide eased volume faders, mute, and 5-second fade-out, per tab and from one panel.
+Turn open YouTube tabs into a live audio mixer: wide eased volume faders, mute, and 7.5-second fade, per tab and from one panel.
 
 ## Description
 YouTube Mixer turns your open YouTube tabs into a live audio mixing desk. It was
@@ -20,11 +20,11 @@ wide, always-visible fader that is easy to hit fast. Dragging the fader is
 heavily eased, so it feels weighted and smooths out hand jitter during a live
 scene; clicking the track jumps straight to that level. Next to it sits a
 numeric 0-100 readout, a mute button, and a Fade Out button that ramps the
-track down to silence over five seconds (press it again to stop the fade where
-it is).
+track down to silence over seven and a half seconds (press it again to stop the
+fade where it is).
 
-Every video opens paused, muted, and set to loop, so a new tab never blasts
-sound before you are ready and ambience tracks repeat on their own.
+Every video opens paused and set to loop, so a new tab never blasts sound
+before you are ready and ambience tracks repeat on their own.
 
 The toolbar panel lists every open YouTube video tab with a thumbnail and the
 same fader, mute, and fade controls, so you can ride every track from one place

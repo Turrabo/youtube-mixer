@@ -3,8 +3,9 @@
 // Responsibilities:
 //   1. Replace the native volume UI (speaker icon + hover slider) with a wide,
 //      always-visible cluster: numeric 0-100 readout, eased slider, MUTE, FADE.
-//   2. Enforce start state on every video load: paused, muted, loop on -
-//      even against autoplay.
+//   2. Enforce start state on every video load: paused and loop on - even
+//      against autoplay. Mute is deliberately NOT part of that; see the
+//      start-state rules below.
 //   3. Answer messages from the popup, and keep the UI in sync with the real
 //      player state.
 //
@@ -22,19 +23,25 @@
 (() => {
   'use strict';
 
-  const FADE_SECONDS = 5;
+  const FADE_SECONDS = 7.5;
 
   let video = null; // the main watch-page <video>
   let ui = null;    // { root, readout, slider, muteBtn, fadeBtn }
   let lastEnforcedVideoId = null;
-  let startMuteUntil = 0;     // re-assert the start mute until this timestamp
   let playApproved = false;   // a human (or the popup) asked to play this source
   let lastPlayerGesture = 0;  // timestamp of the last gesture aimed at the player
   let fadeTimer = null;
 
   // Last state reported by the bridge. This - not video.volume - is what the
   // UI and the popup read.
-  let state = { volume: 0, muted: true, paused: true, api: false };
+  //
+  // Nothing forces mute any more, so this initial `muted` is a placeholder
+  // rather than something the extension guarantees: YouTube persists mute
+  // per profile, so a tab can legitimately open muted. attachVideo() seeds it
+  // from the real element, and the bridge's 250 ms report corrects it either
+  // way. Left as a guess it would make the first MUTE press a no-op on a
+  // player that was already muted.
+  let state = { volume: 0, muted: false, paused: true, api: false };
 
   const isWatchPage = () => location.pathname === '/watch';
 
@@ -51,22 +58,8 @@
     } catch {
       return;
     }
-    // The player is often not ready to accept mute at the instant a video
-    // loads, so the start mute can silently fail to take. Keep re-asserting
-    // it briefly until the player confirms. Any deliberate action by the user
-    // clears the deadline, so this can never fight a real unmute.
-    if (startMuteUntil && !state.muted) {
-      if (Date.now() < startMuteUntil) sendCmd({ type: 'setMuted', muted: true });
-      else startMuteUntil = 0;
-    }
     syncUi();
   });
-
-  // Called by anything the user deliberately does, so the start-state mute
-  // stops re-asserting itself.
-  function userTookControl() {
-    startMuteUntil = 0;
-  }
 
   function setVolume(v01) {
     sendCmd({ type: 'setVolume', value: v01 });
@@ -81,8 +74,17 @@
   // play request from YouTube's own autoplay. Heuristic: a 'play' event is
   // human if a pointer gesture landed inside the player (or a play-ish key
   // was pressed) within the last second, or if the popup asked for it.
+  //
+  // Our own cluster mounts INSIDE #movie_player and this listener is
+  // capture-phase, so it sees a press on the fader, MUTE or FADE before the
+  // button's own stopPropagation can hide it. None of those is a request to
+  // play, and treating one as a human play latches playApproved for the rest
+  // of the video - so setting the volume before pressing play could sanction
+  // an autoplay that arrived a moment later. Exclude them explicitly.
   document.addEventListener('pointerdown', (e) => {
-    if (e.target instanceof Element && e.target.closest('#movie_player')) {
+    if (!(e.target instanceof Element)) return;
+    if (e.target.closest('.ytm-controls')) return;
+    if (e.target.closest('#movie_player')) {
       lastPlayerGesture = performance.now();
     }
   }, true);
@@ -107,6 +109,7 @@
       video.removeEventListener('pause', syncUi);
     }
     video = v;
+    state.muted = video.muted;
     video.addEventListener('loadstart', enforceStartState);
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', syncUi);
@@ -115,7 +118,12 @@
   }
 
   // ------------------------------------------------------ start-state rules
-  // Whenever a NEW VIDEO loads: paused, muted, looping.
+  // Whenever a NEW VIDEO loads: paused and looping.
+  //
+  // Mute is deliberately not enforced. A tab that opens muted has to be
+  // unmuted by hand before it can be used, which is one action per tab in a
+  // session that opens many of them, and "start paused" already guarantees
+  // nothing makes a sound until it is played.
   //
   // Keyed on the watch URL's video id, deliberately NOT on video.currentSrc.
   // YouTube swaps the element's source mid-playback whenever it changes
@@ -134,8 +142,6 @@
     cancelFade();
     video.pause();
     video.loop = true;
-    startMuteUntil = Date.now() + 6000;
-    sendCmd({ type: 'setMuted', muted: true });
     syncUi();
   }
 
@@ -144,7 +150,6 @@
     const gestureRecent = performance.now() - lastPlayerGesture < 1000;
     if (playApproved || gestureRecent) {
       playApproved = true;
-      userTookControl();
     } else {
       // Autoplay with no human gesture at the player: shut it down.
       video.pause();
@@ -227,7 +232,6 @@
     slider.el.classList.add('ytm-slider');
 
     const muteBtn = makeButton('ytm-mute', 'MUTE', () => {
-      userTookControl();
       sendCmd({ type: 'setMuted', muted: !state.muted });
     });
     const fadeBtn = makeButton('ytm-fade', 'FADE', startFade);
@@ -315,14 +319,12 @@
         sendResponse({ ok: true });
         break;
       case 'toggleMute':
-        userTookControl();
         sendCmd({ type: 'setMuted', muted: !state.muted });
         sendResponse({ ok: true });
         break;
       case 'togglePlay':
         if (video.paused) {
           playApproved = true;
-          userTookControl();
           sendCmd({ type: 'play' });
         } else {
           sendCmd({ type: 'pause' });

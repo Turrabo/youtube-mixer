@@ -96,6 +96,18 @@ let cleanedUp = false;
 async function cleanup() {
   if (cleanedUp) return;
   cleanedUp = true;
+  // Mute is persisted per profile by YouTube, and nothing forces it on load
+  // any more, so a run that dies between the two MUTE clicks below would
+  // leave the rig profile muted and fail 'starts unmuted' on every later run
+  // for a reason that is not the extension's.
+  // Raced against a timer because this runs on the abort path too, where the
+  // socket may already be dead and a bare await would hang the exit.
+  try {
+    await Promise.race([
+      evalIn(s, `document.getElementById('movie_player').unMute(); 1`),
+      sleep(2000),
+    ]);
+  } catch { /* no player, or the browser is already gone */ }
   try { await closeTab(t.id); } catch { /* browser already gone */ }
   try { s.close(); } catch { /* already closed */ }
   await sleep(250);
@@ -139,13 +151,29 @@ const snap = async () => evalIn(s, `(() => {
 })()`);
 
 // --- start state -----------------------------------------------------------
-// Regression: the start mute silently failed when the player was not yet ready
-// to accept it, so a track could open audible.
+// A new video opens paused and looping, and NOT muted: the extension used to
+// force mute on load and re-assert it for six seconds, which cost one unmute
+// per tab in a session that opens many. "Starts paused" is what guarantees
+// silence, so the mute added nothing but work.
 console.log('\n--- start state ---');
 const start = await snap();
 check('starts paused', start.paused === true);
-check('starts muted', start.muted === true);
+check('starts unmuted', start.muted === false, `muted=${start.muted}`);
 check('starts looping', start.loop === true);
+
+// Regression: our own cluster mounts inside #movie_player and the gesture
+// listener is capture-phase, so a press on the fader used to register as a
+// human play request and sanction any autoplay that followed within a second.
+// That was inaudible while the extension force-muted on load; without the
+// mute it is a tab that starts playing out loud on its own. The rig runs with
+// --autoplay-policy=no-user-gesture-required, so an unsanctioned play here
+// really would start.
+await click('.ytm-controls .mixer-slider', 0.40);
+await evalIn(s, `document.querySelector('#movie_player video').play().catch(() => {}); 1`);
+await sleep(1500);
+const afterFaderTouch = await snap();
+check('touching the fader does not sanction an autoplay',
+  afterFaderTouch.paused === true, `paused=${afterFaderTouch.paused}`);
 
 // --- volume is the user's volume, not the element's ------------------------
 // Regression: the readout showed video.volume * 100, which on a normalised
@@ -159,6 +187,11 @@ check('readout shows user volume, not the normalised element value',
   afterSlide.readout === afterSlide.getVolume && afterSlide.videoVolume !== afterSlide.getVolume / 100,
   `readout=${afterSlide.readout} getVolume=${afterSlide.getVolume} video.volume=${afterSlide.videoVolume}`);
 
+// MUTE is a toggle, and with nothing forcing mute on load the only way it can
+// be on is because it was pressed.
+await click('.ytm-controls .ytm-mute');
+const muted = await snap();
+check('MUTE mutes', muted.muted === true, `muted=${muted.muted}`);
 await click('.ytm-controls .ytm-mute');
 await click('#movie_player .ytp-play-button');
 await sleep(2500);
@@ -204,7 +237,18 @@ await click('.ytm-controls .mixer-slider', 0.80);
 await evalIn(s, `window.requestAnimationFrame = function(){ return 0; }; 1`);
 const beforeFade = await snap();
 await evalIn(s, `document.querySelector('.ytm-controls .ytm-fade').click()`);
-await sleep(7000);
+
+// The ramp is 7.5 s, so five seconds in it must still be running. This is the
+// guard on the duration itself: under the old 5 s ramp the volume is already 0
+// here, and both that and a fade that never starts fail the same check.
+await sleep(5000);
+const midFade = await snap();
+const ramped = midFade.getVolume / beforeFade.getVolume;
+check('fade is a third of the way from the end at 5 s, so the ramp is 7.5 s',
+  Math.abs(ramped - 1 / 3) < 0.12,
+  `${beforeFade.getVolume} -> ${midFade.getVolume} at 5 s (${ramped.toFixed(2)} left)`);
+
+await sleep(5000);
 const afterFade = await snap();
 check('fade completes to 0 without rAF', afterFade.getVolume === 0,
   `${beforeFade.getVolume} -> ${afterFade.getVolume}`);

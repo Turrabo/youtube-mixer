@@ -22,12 +22,14 @@ In every `youtube.com/watch` player:
 - The native speaker icon + hover volume slider are removed. In their place,
   inline in the bottom control bar: a **0–100 numeric readout**, a **wide
   slider** that is always expanded, a separate **MUTE** button, and a **FADE**
-  button (5-second ramp to zero).
+  button (7.5-second ramp to zero).
 - The control bar auto-hides on idle exactly as normal YouTube does; while
   visible, the mixer slider is always expanded (never hover-to-expand).
-- Every video starts **paused and muted** with **looping on**, enforced against
-  autoplay. Keyed on the watch URL's video id, so a routine quality switch
-  mid-playback is not mistaken for a new video.
+- Every video starts **paused** with **looping on**, enforced against autoplay.
+  Keyed on the watch URL's video id, so a routine quality switch mid-playback
+  is not mistaken for a new video. It is deliberately **not** muted: "starts
+  paused" is what keeps a new tab silent, and forcing mute on top of it just
+  cost an unmute per tab.
 - **Volume and mute go through YouTube's own player API** (`setVolume`,
   `mute`/`unMute`), never by writing `video.volume`. This is load-bearing, and
   the reasons are measured rather than assumed - see "Volume architecture"
@@ -193,18 +195,27 @@ are the assumptions to re-check (all in `content/content.js`,
   pointer gesture hit the player (or Space/K was pressed) within the last
   second, or the popup requested it; anything else is autoplay and gets
   paused. Playing via some other page element could be misread as autoplay -
-  just click play again.
+  just click play again. The extension's own controls sit inside the player
+  but are explicitly excluded from counting as a gesture: setting the volume
+  is not asking to play, and since videos no longer start muted, a wrongly
+  sanctioned autoplay would now be audible rather than silent.
 - **Chrome autoplay policy:** pressing play *from the popup* on a tab you have
   never clicked inside can be rejected by Chrome for unmuted media. YouTube's
   high media-engagement score usually allows it; if a tab refuses, click once
-  anywhere in that tab.
-- The fade is a linear volume ramp over 5 s. Pressing FADE again mid-fade
+  anywhere in that tab. **This got more likely when videos stopped starting
+  muted**, because Chrome permits muted playback unconditionally and a muted
+  tab therefore never met this policy at all. The rejection is silent at every
+  layer - `playVideo()` returns nothing and the element fallback swallows the
+  promise - so it shows up as the popup's play button simply not changing. The
+  test rig cannot catch it either: it launches with
+  `--autoplay-policy=no-user-gesture-required`, which disables the policy.
+- The fade is a linear volume ramp over 7.5 s. Pressing FADE again mid-fade
   stops the ramp, leaving the volume where it is; touching the slider (or
   setting volume from the popup) also cancels an in-flight fade.
 - The fade is driven by a **wall-clock timer, not `requestAnimationFrame`**.
   Chrome pauses rAF completely in hidden tabs, which froze a fade the moment
   you switched tabs. Each tick recomputes from elapsed time rather than
-  accumulating, so the ramp still ends at exactly 5 s even if the browser
+  accumulating, so the ramp still ends at exactly 7.5 s even if the browser
   throttles the tick rate in the background; worst case it steps slightly
   instead of stopping dead. The slider easing still uses rAF, which is correct
   - you can only drag a slider you can see.
