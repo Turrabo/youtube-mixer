@@ -27,12 +27,15 @@
 //   in :  'ytm-cmd'   detail = {"type":"setVolume","value":0..1}
 //                            | {"type":"setMuted","muted":bool}
 //                            | {"type":"play"} | {"type":"pause"}
+//                            | {"type":"wakeControls"}
 //   out:  'ytm-state' detail = {"volume":0..1,"muted":bool,"paused":bool,
 //                               "api":bool}
 //         where volume is USER volume, not the normalised element value.
 
 (() => {
   'use strict';
+
+  let wakeJitter = 1; // see 'wakeControls' below
 
   const player = () => document.getElementById('movie_player');
   const media = () => document.querySelector('#movie_player video');
@@ -102,6 +105,34 @@
         if (p && typeof p.pauseVideo === 'function') p.pauseVideo();
         else v.pause();
         break;
+      // Reset the control bar's idle countdown. Needed because the mixer
+      // slider takes pointer capture and preventDefault()s pointerdown, which
+      // suppresses the compatibility mouse events YouTube's timer feeds on -
+      // so a slow, deliberate drag looks like an idle player and the bar
+      // fades out under the hand using it.
+      //
+      // The player's own method is used where it exists, because a synthetic
+      // mousemove only counts if the coordinates CHANGED: during a drag the
+      // pointer sits on the same control, so repeated identical events are
+      // read as no movement and ignored. Measured, not assumed. The fallback
+      // therefore jitters by a pixel, which is enough to register.
+      case 'wakeControls': {
+        if (p && typeof p.wakeUpControls === 'function') {
+          p.wakeUpControls();
+        } else if (p) {
+          const r = p.getBoundingClientRect();
+          // A plain alternating toggle, NOT anything derived from the clock:
+          // the caller ticks every 500 ms, so Date.now() parity is identical
+          // on every tick and a sign picked from it never actually flips.
+          wakeJitter = -wakeJitter;
+          p.dispatchEvent(new MouseEvent('mousemove', {
+            bubbles: true, cancelable: true, view: window,
+            clientX: Math.round(r.left + r.width / 2) + wakeJitter,
+            clientY: Math.round(r.top + r.height / 2),
+          }));
+        }
+        return; // nothing about the media changed; no report needed
+      }
       default:
         return;
     }

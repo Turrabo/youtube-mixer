@@ -94,10 +94,18 @@ working.
 At least one is required. Accepted size 1280x800 or 640x400 PNG/JPG.
 
 Suggested shots:
-1. A YouTube video with the wide fader, readout, mute and fade visible in the
-   control bar.
+1. A YouTube video with the wide fader, readout, speaker icon and fade visible
+   in the control bar.
 2. The toolbar panel open over a YouTube tab, showing two or three tracks with
    thumbnails and faders.
 
-Capture tip: set the browser window so the player region is about 1280 wide,
-use the OS screenshot tool, then crop to exactly 1280x800.
+Capture tip: drive the test rig instead of the OS screenshot tool. With
+`Emulation.setDeviceMetricsOverride` at 1280x800 and `deviceScaleFactor: 1`,
+`Page.captureScreenshot` returns exactly 1280x800 with no cropping step to get
+wrong - and the dashboard rejects a screenshot whose dimensions are merely
+close. Hide the masthead's account controls before capturing
+(`ytd-masthead #end`), so a listing image does not carry the signed-in avatar.
+
+These images are uploaded on the dashboard by hand. The publish API only
+carries the package, so shipping a new version does NOT refresh them: a UI
+change means re-shooting shot 1 and uploading it, or the listing goes stale.

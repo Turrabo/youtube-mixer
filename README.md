@@ -20,9 +20,14 @@ remote code).
 In every `youtube.com/watch` player:
 
 - The native speaker icon + hover volume slider are removed. In their place,
-  inline in the bottom control bar: a **0–100 numeric readout**, a **wide
-  slider** that is always expanded, a separate **MUTE** button, and a **FADE**
-  button (7.5-second ramp to zero).
+  inline in the bottom control bar: a **0–100 numeric readout**, a **speaker
+  icon** that toggles mute, a **wide slider** that is always expanded, and a
+  **FADE** button (7.5-second ramp to zero).
+- The speaker's **three wave lines** light a third of the volume range at a
+  time (1 wave up to 33, 2 up to 66, 3 above), and pulse outward in a
+  staggered loop. Muting hides all three and shows a slash; it never touches
+  the volume, so unmuting restores exactly the waves it hid. The pulse is
+  disabled under `prefers-reduced-motion`.
 - The control bar auto-hides on idle exactly as normal YouTube does; while
   visible, the mixer slider is always expanded (never hover-to-expand).
 - Every video starts **paused** with **looping on**, enforced against autoplay.
@@ -42,6 +47,15 @@ In every `youtube.com/watch` player:
 Slider feel (same in player and popup):
 
 - **Click** anywhere on the track: volume jumps there immediately.
+- **While the handle is held**, the control bar is kept awake. The slider takes
+  pointer capture and calls `preventDefault()` on `pointerdown`, which by spec
+  suppresses the compatibility mouse events for that pointer - so a slow,
+  careful drag looked completely idle to YouTube and the bar faded out from
+  under the hand using it. The fix calls the player's own `wakeUpControls()`
+  every 500 ms through the bridge, and stops on release, so the bar goes back
+  to hiding on YouTube's own schedule rather than being pinned open. A
+  synthetic `mousemove` was measured as the alternative and only counts when
+  the coordinates change, which during a drag on one control they do not.
 - **Drag** the handle: heavily damped follow - the displayed value eases
   toward the pointer each animation frame (`displayed += (target − displayed)
   × k`, time-constant ≈ 0.45 s), and the real volume follows the eased value.
@@ -50,7 +64,10 @@ Slider feel (same in player and popup):
 
 The popup (toolbar icon) lists every live YouTube watch tab - discarded
 ("sleeping") tabs are filtered out - with thumbnail, title, play/pause, the
-same eased slider, readout, MUTE and FADE. Clicking a title/thumbnail focuses
+same eased slider, readout, MUTE and FADE - the popup deliberately still uses
+a text MUTE button rather than the player's speaker icon, because a row of
+tabs reads better with labels than with repeated glyphs. Clicking a
+title/thumbnail focuses
 that tab. State polls every 400 ms while the popup is open.
 
 ## Layout-shift diagnosis
@@ -187,6 +204,8 @@ are the assumptions to re-check (all in `content/content.js`,
 | `yt-navigate-finish` event | SPA navigation hook |
 | `ytd-watch-flexy`, `#player-container-inner`, `#player-container` | player-box aspect lock |
 | `#movie_player` API: `getVolume`, `setVolume`, `mute`, `unMute`, `isMuted`, `playVideo`, `pauseVideo` | all volume/mute control and state, via the bridge. If these disappear the bridge falls back to the raw element, which works but brings the snap-back back |
+| `#movie_player` API: `wakeUpControls` | keeping the control bar up during a fader drag. If it disappears the bridge falls back to a jittered synthetic `mousemove`, which is what YouTube's idle timer listens for anyway |
+| `ytp-autohide` class on `#movie_player` | read by the test suite to tell whether the bar is up; also the hook for the CSS grace period |
 
 ## Other assumptions / limitations
 

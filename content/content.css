@@ -118,8 +118,125 @@
   background: rgba(0, 0, 0, 0.85);
 }
 
-.ytm-muted .ytm-mute {
+/* --- the speaker (the mute toggle) --- */
+
+.ytm-speaker {
+  padding: 0 6px;
+  width: 34px;
+  justify-content: center;
+}
+
+.ytm-speaker-svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  overflow: visible;
+}
+
+.ytm-speaker-cone {
+  fill: #fff;
+}
+
+.ytm-wave {
+  fill: none;
+  stroke: #fff;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  /* Hidden by default; the data-waves count below lights them one at a time,
+     so a wave can only appear by being switched on explicitly. */
+  opacity: 0;
+  transition: opacity 140ms ease;
+  /* Needed for the pulse: an SVG child transforms about the viewBox origin
+     unless its own box is made the reference. */
+  transform-box: fill-box;
+  transform-origin: left center;
+}
+
+/* Conditional visibility: each wave lights once the volume reaches its third
+   of the range. Muted wins over all of it (see below). */
+.ytm-speaker[data-waves="1"] .ytm-wave-1,
+.ytm-speaker[data-waves="2"] .ytm-wave-1,
+.ytm-speaker[data-waves="2"] .ytm-wave-2,
+.ytm-speaker[data-waves="3"] .ytm-wave-1,
+.ytm-speaker[data-waves="3"] .ytm-wave-2,
+.ytm-speaker[data-waves="3"] .ytm-wave-3 {
+  opacity: 1;
+  animation: ytm-wave-pulse 1.9s ease-in-out infinite;
+}
+
+/* Staggered, so the three read as one wavefront travelling outward rather
+   than three lines blinking together.
+   These must match the specificity of the lighting rules above AND come
+   after them: the `animation` shorthand there resets animation-delay to 0,
+   so a lower-specificity delay elsewhere would be silently overwritten and
+   all three would pulse in unison. */
+.ytm-speaker[data-waves="2"] .ytm-wave-2,
+.ytm-speaker[data-waves="3"] .ytm-wave-2 {
+  animation-delay: 0.16s;
+}
+
+.ytm-speaker[data-waves="3"] .ytm-wave-3 {
+  animation-delay: 0.32s;
+}
+
+@keyframes ytm-wave-pulse {
+  0%, 100% { opacity: 0.7; transform: scaleX(0.88); }
+  50%      { opacity: 1;    transform: scaleX(1.06); }
+}
+
+/* The slash is the mute state; nothing else shows it. */
+.ytm-speaker-slash,
+.ytm-speaker-slash-cut {
+  fill: none;
+  stroke-linecap: round;
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+
+.ytm-speaker-slash {
+  stroke: #fff;
+  stroke-width: 2;
+}
+
+/* Same path, wider, in the muted pill's own colour: it cuts a gap through
+   the white cone so the white slash above it stays visible end to end. */
+.ytm-speaker-slash-cut {
+  stroke: #f03;
+  stroke-width: 5;
+}
+
+.ytm-muted .ytm-speaker {
   background: #f03;
+}
+
+/* Muted hides every wave whatever the volume is, and shows the slash. The
+   volume itself is untouched, so releasing mute restores the exact waves.
+   Deliberately one class more specific than the data-waves lighting rules,
+   rather than merely later in the file: mute beating the volume must be a
+   structural fact, not something a reordering could quietly undo. */
+.ytm-controls.ytm-muted .ytm-speaker .ytm-wave {
+  opacity: 0;
+  animation: none;
+}
+
+.ytm-controls.ytm-muted .ytm-speaker .ytm-speaker-slash,
+.ytm-controls.ytm-muted .ytm-speaker .ytm-speaker-slash-cut {
+  opacity: 1;
+}
+
+/* Volume 0 while NOT muted: a bare cone with no waves reads as an icon that
+   failed to render. Dimming it says "nothing is coming out" without
+   claiming the mute that is not set. This is the resting state after a FADE
+   completes, so it is seen often. */
+.ytm-speaker[data-waves="0"] .ytm-speaker-cone {
+  opacity: 0.45;
+}
+
+/* A control bar is not the place for motion somebody cannot switch off. */
+@media (prefers-reduced-motion: reduce) {
+  .ytm-speaker .ytm-wave {
+    animation: none !important;
+  }
 }
 
 .ytm-slider {

@@ -2,7 +2,8 @@
 //
 // Responsibilities:
 //   1. Replace the native volume UI (speaker icon + hover slider) with a wide,
-//      always-visible cluster: numeric 0-100 readout, eased slider, MUTE, FADE.
+//      always-visible cluster: numeric 0-100 readout, a speaker icon that
+//      toggles mute and shows the level, eased slider, FADE.
 //   2. Enforce start state on every video load: paused and loop on - even
 //      against autoplay. Mute is deliberately NOT part of that; see the
 //      start-state rules below.
@@ -39,8 +40,8 @@
   // rather than something the extension guarantees: YouTube persists mute
   // per profile, so a tab can legitimately open muted. attachVideo() seeds it
   // from the real element, and the bridge's 250 ms report corrects it either
-  // way. Left as a guess it would make the first MUTE press a no-op on a
-  // player that was already muted.
+  // way. Left as a guess it would make the first press of the speaker a
+  // no-op on a player that was already muted.
   let state = { volume: 0, muted: false, paused: true, api: false };
 
   const isWatchPage = () => location.pathname === '/watch';
@@ -66,7 +67,20 @@
     // Optimistic local update so the readout tracks the hand with no
     // round-trip lag; the bridge's report confirms it a moment later.
     state.volume = Math.min(1, Math.max(0, v01));
-    if (ui) ui.readout.textContent = String(Math.round(state.volume * 100));
+    renderVolume();
+  }
+
+  // Everything that shows the volume, in one place, so a drag updates the
+  // waves as promptly as it updates the number rather than waiting for the
+  // bridge's next report.
+  function renderVolume() {
+    if (!ui) return;
+    ui.readout.textContent = String(Math.round(state.volume * 100));
+    // Only on a real change. A drag calls this every animation frame, and an
+    // attribute write inside the player's subtree invalidates style each
+    // time; the count only moves three times across the whole range.
+    const waves = String(waveCount(state.volume));
+    if (ui.muteBtn.dataset.waves !== waves) ui.muteBtn.dataset.waves = waves;
   }
 
   // ---------------------------------------------------------------- gestures
@@ -76,7 +90,7 @@
   // was pressed) within the last second, or if the popup asked for it.
   //
   // Our own cluster mounts INSIDE #movie_player and this listener is
-  // capture-phase, so it sees a press on the fader, MUTE or FADE before the
+  // capture-phase, so it sees a press on the fader, speaker or FADE before the
   // button's own stopPropagation can hide it. None of those is a request to
   // play, and treating one as a human play latches playApproved for the rest
   // of the video - so setting the volume before pressing play could sanction
@@ -198,6 +212,50 @@
     }
   }
 
+  // ------------------------------------------------- keeping the bar awake
+  // The control bar hides on idle, and YouTube's idle timer is fed by
+  // mousemove. The mixer slider takes pointer capture and calls
+  // preventDefault() on pointerdown, which by spec suppresses the
+  // compatibility mouse events for that pointer - so during a slow, careful
+  // drag YouTube sees no activity at all and fades the bar out from under the
+  // hand that is using it.
+  //
+  // Rather than fight the fade in CSS (which would leave YouTube's own state
+  // machine believing it had hidden the bar, and the cursor hidden with it),
+  // keep resetting the timer for as long as the hand is down. The player's
+  // own wakeUpControls() does it, through the bridge, since only the MAIN
+  // world can reach the player object.
+  //
+  // On release the timer is left to run out normally, so the bar goes back to
+  // behaving exactly as YouTube's does. Nothing is pinned open.
+  let awakeTimer = null;
+
+  function holdBarOpen(held) {
+    if (held) {
+      if (awakeTimer !== null) return;
+      sendCmd({ type: 'wakeControls' });
+      // The slider answers every hold with a release, including when it is
+      // torn out of the document mid-drag. This tick checks a DIFFERENT
+      // thing: that the cluster is still on the page at all. A timer that
+      // pins the control bar open for the life of the tab is the one failure
+      // here with no way back for the user, so it is bounded by something
+      // this side of the callback rather than only by the callback arriving.
+      awakeTimer = setInterval(() => {
+        if (!ui || !ui.root.isConnected) {
+          holdBarOpen(false);
+          return;
+        }
+        sendCmd({ type: 'wakeControls' });
+      }, 500);
+    } else if (awakeTimer !== null) {
+      clearInterval(awakeTimer);
+      awakeTimer = null;
+      // One last wake on release, so the countdown restarts from the moment
+      // the hand came off rather than from the last interval tick.
+      sendCmd({ type: 'wakeControls' });
+    }
+  }
+
   // --------------------------------------------------------------------- UI
   function makeButton(cls, label, onClick) {
     const b = document.createElement('button');
@@ -213,11 +271,53 @@
     return b;
   }
 
+  // The speaker: a mute toggle whose three waves also read out roughly how
+  // loud the track is. Volume and mute stay independent - the waves show the
+  // volume the track will return to, so muting does not pretend the volume
+  // moved.
+  const SPEAKER_SVG =
+    '<svg class="ytm-speaker-svg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' +
+    '<path class="ytm-speaker-cone" d="M3.5 9h3.6L12 4.8v14.4L7.1 15H3.5z"/>' +
+    '<path class="ytm-wave ytm-wave-1" d="M14.4 9.6a3.4 3.4 0 0 1 0 4.8"/>' +
+    '<path class="ytm-wave ytm-wave-2" d="M16.8 7.2a6.8 6.8 0 0 1 0 9.6"/>' +
+    '<path class="ytm-wave ytm-wave-3" d="M19.2 4.8a10.2 10.2 0 0 1 0 14.4"/>' +
+    // The cut is drawn first, in the pill's own colour and wider than the
+    // slash, so the white slash reads across the white cone instead of
+    // vanishing into it for its middle third.
+    '<path class="ytm-speaker-slash-cut" d="M4.5 19.5 19.5 4.5"/>' +
+    '<path class="ytm-speaker-slash" d="M4.5 19.5 19.5 4.5"/>' +
+    '</svg>';
+
+  function makeSpeakerButton(onClick) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'ytm-btn ytm-speaker';
+    b.setAttribute('aria-label', 'Mute');
+    // Static markup we author here, with no interpolation of anything from
+    // the page - so there is nothing for a page value to inject into.
+    b.innerHTML = SPEAKER_SVG;
+    b.addEventListener('pointerdown', (e) => e.stopPropagation());
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      onClick();
+    });
+    return b;
+  }
+
+  // How many waves are lit. Thirds of the range, so the icon reads at a
+  // glance rather than needing the number next to it.
+  function waveCount(volume01) {
+    if (volume01 <= 0) return 0;
+    if (volume01 < 1 / 3) return 1;
+    if (volume01 < 2 / 3) return 2;
+    return 3;
+  }
+
   function buildUi() {
     const root = document.createElement('div');
     root.className = 'ytm-controls';
 
-    // Numeric 0-100 readout - replaces the speaker icon.
+    // Numeric 0-100 readout - the exact level the icon only approximates.
     const readout = document.createElement('span');
     readout.className = 'ytm-readout';
     readout.textContent = '0';
@@ -228,15 +328,18 @@
         cancelFade(); // hand on the fader overrides an in-flight fade
         setVolume(v);
       },
+      onHold: holdBarOpen,
     });
     slider.el.classList.add('ytm-slider');
 
-    const muteBtn = makeButton('ytm-mute', 'MUTE', () => {
+    // The speaker is the mute toggle. It sits immediately left of the fader,
+    // where a speaker belongs, and its waves track the volume.
+    const muteBtn = makeSpeakerButton(() => {
       sendCmd({ type: 'setMuted', muted: !state.muted });
     });
     const fadeBtn = makeButton('ytm-fade', 'FADE', startFade);
 
-    root.append(readout, slider.el, muteBtn, fadeBtn);
+    root.append(readout, muteBtn, slider.el, fadeBtn);
     ui = { root, readout, slider, muteBtn, fadeBtn };
   }
 
@@ -259,9 +362,18 @@
   // YouTube itself, or a keyboard shortcut.
   function syncUi() {
     if (!ui) return;
-    ui.readout.textContent = String(Math.round(state.volume * 100));
+    renderVolume();
     ui.slider.setValue(state.volume);
+    // The waves carry the volume and .ytm-muted does the hiding, in CSS.
+    // Mute therefore never overwrites the volume the icon is showing, so
+    // unmuting cannot forget to put the right number of waves back.
     ui.root.classList.toggle('ytm-muted', state.muted);
+    // aria-pressed carries the state, so the label stays fixed: a label that
+    // changed as well would have a screen reader announce the state twice,
+    // and in words that contradict the pressed flag. title is for the mouse,
+    // which lost the affordance the literal word MUTE used to give it.
+    ui.muteBtn.setAttribute('aria-pressed', state.muted ? 'true' : 'false');
+    ui.muteBtn.title = state.muted ? 'Unmute' : 'Mute';
   }
 
   // ---------------------------------------------------------- page watching
