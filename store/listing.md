@@ -109,3 +109,14 @@ close. Hide the masthead's account controls before capturing
 These images are uploaded on the dashboard by hand. The publish API only
 carries the package, so shipping a new version does NOT refresh them: a UI
 change means re-shooting shot 1 and uploading it, or the listing goes stale.
+
+Uploading one is its own **Submit for review**, and it takes the same single
+draft slot a code update needs - so pair a screenshot refresh with the next
+version rather than submitting it alone. Removing an image needs TWO clicks:
+the remove button opens a dialog with its own Remove, and stopping at the
+first silently leaves the old image in place, so a replace becomes an add.
+Re-count the images afterwards.
+
+**Shot 1 is currently stale**: it shows the speaker icon (correct as of
+1.0.5), but has not been uploaded to the dashboard, which still carries the
+older shot showing the removed MUTE button.

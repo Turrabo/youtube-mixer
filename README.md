@@ -142,6 +142,14 @@ later stays out of the package by default rather than shipping because nobody
 remembered to exclude it. `README.md`, `store/`, `tests/` and `scripts/` are
 therefore never in the zip.
 
+**Ship a chapter as one version, not one version per change.** The store gives
+an item a single draft slot and a pending review occupies it, so a second
+submission has to wait for the first to clear - and review runs hours to
+overnight. 1.0.4 and 1.0.5 were two halves of one evening's work; the first
+sat in the queue for 11 hours blocking the second and was withdrawn so the
+combined 1.0.5 could take the slot. The mechanism and the withdrawal guard
+live in `store-publisher`, which is their canonical home.
+
 The item id, publisher id and dashboard URL are recorded in this machine's
 store-publisher config (`~/.claude/state/store-publisher/config.json`), which is
 their canonical home; they are deliberately not restated here. Visibility is
