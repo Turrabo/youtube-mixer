@@ -276,7 +276,7 @@ scripts/
   test-rig.ps1          dev-only: launches Chrome headless + muted with the
                         extension loaded and a CDP port, on a persistent
                         signed-in profile. `-SignIn` once to authenticate,
-                        `-Headed` for tests needing a real window. Port and
-                        profile come from the machine-wide devports ledger
-                        entry `youtube-mixer-chrome`.
+                        `-Headed` for tests needing a real window. The profile
+                        comes from the machine-wide devports ledger entry
+                        `youtube-mixer-chrome`; the CDP port is OS-picked.
 ```

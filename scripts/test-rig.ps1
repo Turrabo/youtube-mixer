@@ -52,14 +52,14 @@ $ErrorActionPreference = 'Stop'
 $devports = Join-Path $env:USERPROFILE '.claude\scripts\devports.ps1'
 $ledgerName = 'youtube-mixer-chrome'
 
-# Port and profile have ONE home, the machine-wide ledger. Reading them here
-# rather than repeating them keeps `devports check` able to prove it, and that
-# gate fails on a bare port literal at a bind site.
-$port = [int](& $devports port $ledgerName)
+# The profile has ONE home, the machine-wide ledger. The CDP port is not
+# reserved: Chrome picks one (--remote-debugging-port=0) and publishes it in the
+# profile's DevToolsActivePort, which is where tests/cdp.mjs reads it.
 $profileDir = (& $devports profile $ledgerName)
-if (-not $port -or -not $profileDir) {
-    throw "Ledger entry '$ledgerName' has no port or profile. Run: devports new $ledgerName -Engine chrome -Owner youtube-mixer"
+if (-not $profileDir) {
+    throw "Ledger entry '$ledgerName' has no profile. Run: devports new $ledgerName -Engine chrome -Owner youtube-mixer -NoPort"
 }
+$marker = Join-Path $profileDir 'DevToolsActivePort'
 
 $chrome = "$env:ProgramFiles\Google\Chrome\Application\chrome.exe"
 if (-not (Test-Path $chrome)) { throw "Chrome not found at $chrome" }
@@ -76,7 +76,7 @@ New-Item -ItemType Directory -Force $profileDir | Out-Null
 # profile whose name merely starts with this one is not killed too.
 function Get-RigProcesses {
     Get-CimInstance Win32_Process -Filter "Name='chrome.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match ("--user-data-dir=""?" + [regex]::Escape($profileDir) + '(""|\s|$)') }
+        Where-Object { $_.CommandLine -and $_.CommandLine -match ("--user-data-dir=""?" + [regex]::Escape($profileDir) + '("|\s|$)') }
 }
 
 Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
@@ -87,6 +87,11 @@ while ((Get-RigProcesses | Measure-Object).Count -gt 0 -and (Get-Date) -lt $dead
 if ((Get-RigProcesses | Measure-Object).Count -gt 0) {
     throw "A previous rig instance on this profile would not exit. Chrome's singleton would hand this launch to it, so the run would silently drive the old browser. Close it and retry."
 }
+
+# The marker survives a hard kill, so a leftover one would name a dead port.
+# Delete it now; the one read below can then only be this launch's.
+Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
+if (Test-Path -LiteralPath $marker) { throw "Could not remove stale $marker; refusing to launch blind." }
 
 if ($SignIn) {
     # Deliberately minimal: no CDP port, no extension, no automation flags.
@@ -112,7 +117,7 @@ if ($SignIn) {
 
 $chromeArgs = @(
     "--user-data-dir=$profileDir",
-    "--remote-debugging-port=$port",
+    '--remote-debugging-port=0',
     '--mute-audio',
     '--no-first-run',
     '--no-default-browser-check',
@@ -140,9 +145,11 @@ Start-Process $chrome -ArgumentList $chromeArgs -WindowStyle Hidden
 # headed launch on this machine was measured taking longer than 5 seconds, so
 # the old 5-second sleep was a flake waiting to happen.
 $v = $null
+$port = $null
 $deadline = (Get-Date).AddSeconds(45)
 while ((Get-Date) -lt $deadline) {
     try {
+        if (-not $port) { $port = [int](Get-Content -LiteralPath $marker -TotalCount 1 -ErrorAction Stop) }
         $v = (Invoke-WebRequest -UseBasicParsing "http://127.0.0.1:$port/json/version" -TimeoutSec 5).Content | ConvertFrom-Json
         break
     } catch {
@@ -151,14 +158,14 @@ while ((Get-Date) -lt $deadline) {
 }
 if (-not $v) {
     Get-RigProcesses | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
-    throw "Chrome did not expose CDP on port $port within 45s. Browser stopped so it cannot be mistaken for a working rig."
+    throw "Chrome did not expose CDP within 45s (port: $(if ($port) { $port } else { 'never published' })). Browser stopped so it cannot be mistaken for a working rig."
 }
 Write-Host ("CDP up on {0} : {1}" -f $port, $v.Browser)
 
 $extensionLoaded = 'skipped'
 if (-not $NoExtension) {
-    # browser-extensions.mjs reads the port and the extension paths off the same
-    # ledger entry, so nothing here repeats either. It reports a failure by exit
+    # browser-extensions.mjs reads the extension paths off the same ledger
+    # entry, and takes the port this launch was given. It reports a failure by exit
     # code; a rig with no extension in it looks exactly like a working browser,
     # which is the failure this check exists to catch.
     $loader = Join-Path $env:USERPROFILE '.claude\scripts\browser-extensions.mjs'
@@ -179,7 +186,7 @@ if (-not $NoExtension) {
     $ErrorActionPreference = 'Continue'
     $rc = $null
     try {
-        $out = & node $loader load $ledgerName --wait 20 2>&1
+        $out = & node $loader load $ledgerName --port $port --wait 20 2>&1
         $rc = $LASTEXITCODE
     } finally {
         $PSNativeCommandUseErrorActionPreference = $prevNative

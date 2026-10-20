@@ -7,50 +7,53 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// The rig's port has ONE home, the machine-wide devports ledger. This file
-// used to repeat it, which is how it ended up pointing at the retired Edge
-// rig's 9333 after the rig moved to Chrome.
+// The rig launches on an OS-picked port (scripts/test-rig.ps1), and Chrome
+// publishes it in the profile's DevToolsActivePort. test-rig deletes that file
+// before every launch, so the one read here is the running rig's.
 //
-// The two failure modes are deliberately NOT treated alike, because they mean
-// opposite things:
+// The profile has ONE home, the machine-wide devports ledger. The two failure
+// modes are deliberately NOT treated alike, because they mean opposite things:
 //
 //   Ledger unreadable  -> a developer without the machine's ledger. Fall back
-//                         to the documented default, and SAY SO, because a
-//                         silent fallback that happens to work is how the
-//                         duplicate survived the last cleanup.
+//                         to the documented default profile, and SAY SO.
 //   Ledger present but -> a real misconfiguration: the entry was renamed or
-//   entry missing         removed. Throw. Falling back here would silently
-//                         drive whatever else has since been allocated that
-//                         port, which is worse than not running at all.
+//   entry missing         removed. Throw rather than guess.
 const RIG = 'youtube-mixer-chrome';
-const RIG_PORT_FALLBACK = 9236;
+const HOME = process.env.USERPROFILE || process.env.HOME || '';
+const RIG_PROFILE_FALLBACK = join(HOME, '.claude', 'state', 'browsers', RIG);
 
 function ledgerPath() {
-  return (
-    process.env.DEVPORTS_LEDGER ||
-    join(process.env.USERPROFILE || process.env.HOME || '', '.claude', 'state', 'ports', 'ledger.json')
-  );
+  return process.env.DEVPORTS_LEDGER || join(HOME, '.claude', 'state', 'ports', 'ledger.json');
 }
 
-function rigPort() {
+function rigProfile() {
   const path = ledgerPath();
   let ledger;
   try {
     ledger = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    console.warn(
-      `[cdp] no readable devports ledger at ${path}; falling back to port ${RIG_PORT_FALLBACK}. ` +
-        `If the rig is on a different port this run will drive the wrong browser or nothing at all.`,
-    );
-    return RIG_PORT_FALLBACK;
+    console.warn(`[cdp] no readable devports ledger at ${path}; falling back to profile ${RIG_PROFILE_FALLBACK}.`);
+    return RIG_PROFILE_FALLBACK;
   }
-  const port = Number(ledger?.reservations?.[RIG]?.ports?.[0]);
-  if (!port) {
+  const profile = ledger?.reservations?.[RIG]?.profile;
+  if (!profile) {
     throw new Error(
-      `devports ledger at ${path} has no port for reservation '${RIG}'. ` +
-        `Recreate it with: devports new ${RIG} -Engine chrome -Owner youtube-mixer`,
+      `devports ledger at ${path} has no profile for reservation '${RIG}'. ` +
+        `Recreate it with: devports new ${RIG} -Engine chrome -Owner youtube-mixer -NoPort`,
     );
   }
+  return profile.replace(/%([^%]+)%/g, (m, v) => process.env[v] ?? m);
+}
+
+function rigPort() {
+  const marker = join(rigProfile(), 'DevToolsActivePort');
+  let port;
+  try {
+    port = Number(readFileSync(marker, 'utf8').split(/\r?\n/)[0]);
+  } catch {
+    /* reported below */
+  }
+  if (!port) throw new Error(`no rig port at ${marker}. Start the rig first: scripts/test-rig.ps1`);
   return port;
 }
 
